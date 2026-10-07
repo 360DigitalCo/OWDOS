@@ -1,0 +1,11 @@
+[
+  {
+    "id": "calculator",
+    "name": "Calculator",
+    "version": "1.0.0",
+    "author": "OWDOS",
+    "icon": "∑",
+    "description": "A small calculator app shipped through the OWDOS registry.",
+    "entry": "apps/calculator.html"
+  }
+]

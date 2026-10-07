@@ -1,0 +1,9 @@
+{
+  "name": "OWDOS",
+  "short_name": "OWDOS",
+  "start_url": ".",
+  "display": "fullscreen",
+  "background_color": "#090a0d",
+  "theme_color": "#111317",
+  "icons": []
+}
