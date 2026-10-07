@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Calculator</title>
+<style>
+body{margin:0;background:#101216;color:#f1f3f5;font-family:system-ui,sans-serif;padding:18px}h1{font-size:16px;margin:0 0 13px}.out{width:100%;box-sizing:border-box;background:#090a0d;color:#f1f3f5;border:1px solid #272c34;border-radius:10px;padding:13px;font-size:25px;text-align:right}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:9px}button{padding:12px;border:1px solid #272c34;border-radius:9px;background:#191c22;color:#f1f3f5;cursor:pointer}button:hover{background:#21252d}.equal{grid-column:span 2;background:#7dd3fc;color:#071018;border:0;font-weight:700}
+</style>
+</head>
+<body>
+<h1>Calculator</h1>
+<input id="out" class="out" value="0" readonly>
+<div id="grid" class="grid"></div>
+<script>
+const out=document.getElementById('out');
+const keys=['C','(','7','8','9','/','4','5','6','*','1','2','3','-','0','.','(',')','+','=','DEL'];
+let expr='';
+function draw(){document.getElementById('grid').innerHTML=keys.map(k=>`<button class="${k==='='?'equal':''}" data-k="${k}">${k}</button>`).join('')}
+function run(k){if(k==='C')expr='';else if(k==='DEL')expr=expr.slice(0,-1);else if(k==='='){try{if(!expr.trim())return;expr=String(Function(`"use strict";return (${expr})`)())}catch{expr='Error'}}else expr+=k;out.value=expr||'0'}
+draw();document.getElementById('grid').addEventListener('click',e=>e.target.closest('button')&&run(e.target.closest('button').dataset.k));
+document.addEventListener('keydown',e=>{if(/^[0-9+\-*/().]$/.test(e.key))run(e.key);if(e.key==='Enter')run('=');if(e.key==='Backspace')run('DEL');if(e.key==='Escape')run('C')});
+</script>
+</body>
+</html>

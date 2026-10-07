@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#111317">
+  <title>OWDOS</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/css/xterm.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="boot" class="screen">
+    <div class="boot-card">
+      <div class="boot-mark">OW</div>
+      <div class="boot-name">OWDOS</div>
+      <div id="boot-status">Starting Ordbit Web Distro Operating System...</div>
+      <div class="boot-bar"><span></span></div>
+    </div>
+  </div>
+
+  <main id="auth" class="screen hidden">
+    <section class="auth-card">
+      <div class="auth-mark">OW</div>
+      <h1>Welcome to OWDOS</h1>
+      <p class="muted">Ordbit Web Distro Operating System</p>
+      <div class="auth-tabs">
+        <button class="tab active" data-auth-tab="signin">Sign in</button>
+        <button class="tab" data-auth-tab="signup">Create account</button>
+      </div>
+      <form id="auth-form">
+        <label id="username-wrap" class="hidden">Username<input id="username" autocomplete="username" maxlength="24"></label>
+        <label>Email<input id="email" type="email" autocomplete="email" required></label>
+        <label>Password<input id="password" type="password" autocomplete="current-password" minlength="6" required></label>
+        <label id="password2-wrap" class="hidden">Confirm password<input id="password2" type="password" autocomplete="new-password" minlength="6"></label>
+        <button id="auth-submit" class="primary" type="submit">Sign in</button>
+      </form>
+      <button id="forgot-password" class="link-button">Forgot password?</button>
+      <div id="auth-message" class="message"></div>
+    </section>
+  </main>
+
+  <main id="desktop" class="desktop hidden">
+    <div id="windows"></div>
+    <div id="toast-area"></div>
+    <div class="taskbar">
+      <button id="launcher" class="task-button launcher" aria-label="Open applications">OW</button>
+      <div id="task-list" class="task-list"></div>
+      <div class="taskbar-spacer"></div>
+      <div id="status-user" class="status-user"></div>
+      <button id="clock" class="clock"></button>
+    </div>
+    <section id="launcher-menu" class="launcher-menu hidden">
+      <div class="launcher-head">
+        <strong>Applications</strong>
+        <span id="launcher-user" class="muted"></span>
+      </div>
+      <div class="launcher-grid">
+        <button class="app-launch" data-app="files"><span class="app-icon">▣</span><span>Files</span></button>
+        <button class="app-launch" data-app="terminal"><span class="app-icon">›_</span><span>Terminal</span></button>
+        <button class="app-launch" data-app="browser"><span class="app-icon">◎</span><span>Browser</span></button>
+        <button class="app-launch" data-app="store"><span class="app-icon">+</span><span>OWD Store</span></button>
+        <button class="app-launch" data-app="settings"><span class="app-icon">⚙</span><span>Settings</span></button>
+      </div>
+    </section>
+    <div id="desktop-context" class="context-menu hidden"></div>
+  </main>
+
+  <script src="coi-serviceworker.js"></script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

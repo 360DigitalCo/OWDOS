@@ -1,0 +1,8 @@
+OWDOS uses external browser packages loaded at runtime:
+
+- @supabase/supabase-js
+- @xterm/xterm
+- @xterm/addon-fit
+- @wasmer/sdk
+
+Their respective licenses apply to those projects.
