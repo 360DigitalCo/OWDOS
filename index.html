@@ -11,25 +11,19 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="boot" class="screen">
-    <div class="boot-card">
-      <div class="boot-mark">OW</div>
-      <div class="boot-name">OWDOS</div>
-      <div id="boot-status">Starting Ordbit Web Distro Operating System...</div>
-      <div id="boot-log" class="boot-log"></div>
-      <div class="boot-bar"><span></span></div>
-      <button id="bootloader-trigger" class="boot-trigger" type="button">Bootloader</button>
-    </div>
-  </div>
+  <div id="boot" class="screen"></div>
 
-  <main id="auth" class="screen hidden">
-    <section class="auth-card">
+  <main id="welcome" class="setup-screen hidden"></main>
+  <main id="user" class="setup-screen hidden"></main>
+  <main id="auth" class="setup-screen hidden">
+    <section class="auth-card auth-page">
       <div class="auth-mark">OW</div>
-      <h1>Welcome to OWDOS</h1>
-      <p class="muted">Ordbit Web Distro Operating System</p>
+      <div class="eyebrow">OWDOS ACCOUNT</div>
+      <h1 id="auth-title">Sign in to OWDOS</h1>
+      <p id="auth-subtitle" class="muted">Use your OWDOS account to continue.</p>
       <div class="auth-tabs">
-        <button class="tab active" data-auth-tab="signin">Sign in</button>
-        <button class="tab" data-auth-tab="signup">Create account</button>
+        <button class="tab active" data-auth-tab="signin" type="button">Sign in</button>
+        <button class="tab" data-auth-tab="signup" type="button">Create account</button>
       </div>
       <form id="auth-form">
         <label id="username-wrap" class="hidden">Username<input id="username" autocomplete="username" maxlength="24"></label>
@@ -38,10 +32,13 @@
         <label id="password2-wrap" class="hidden">Confirm password<input id="password2" type="password" autocomplete="new-password" minlength="6"></label>
         <button id="auth-submit" class="primary" type="submit">Sign in</button>
       </form>
-      <button id="forgot-password" class="link-button">Forgot password?</button>
+      <button id="forgot-password" class="link-button" type="button">Forgot password?</button>
+      <button id="auth-back" class="setup-back" type="button">Back</button>
       <div id="auth-message" class="message"></div>
     </section>
   </main>
+
+  <main id="guest" class="setup-screen hidden"></main>
 
   <main id="desktop" class="desktop hidden">
     <div id="windows"></div>
@@ -70,7 +67,7 @@
     <div id="desktop-context" class="context-menu hidden"></div>
   </main>
 
-  <script src="coi-serviceworker.js"></script>
-  <script type="module" src="main.js"></script>
+  <script src="coi-serviceworker.js?v=4"></script>
+  <script type="module" src="main.js?v=4"></script>
 </body>
 </html>
