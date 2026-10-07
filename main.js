@@ -39,7 +39,7 @@ const state = {
   deviceId: null,
   devMode: false,
   deviceManaged: false,
-  system: { oobeComplete: false, hostname: 'owdos', theme: 'default', language: 'English (US)', keyboard: 'US', accessibility: false, reduceMotion: false, diagnostics: false, firmwareVersion: '1.2.0', bootloaderVersion: '0.8.0', kernelVersion: '0.5.0-ow', tpmVersion: '2.0.1-virtual', devMode: false, managed: false, lastGoodSnapshot: null },
+  system: { oobeComplete: false, hostname: 'owdos', theme: 'midnight', language: 'English (US)', keyboard: 'US', accessibility: false, reduceMotion: false, diagnostics: false, firmwareVersion: '1.2.0', bootloaderVersion: '0.9.0', kernelVersion: '0.6.0-ow', tpmVersion: '2.0.1-virtual', devMode: false, managed: false, lastGoodSnapshot: null },
   kernel: null
 };
 
@@ -71,7 +71,7 @@ function userStorageKey(name) {
 }
 
 function loadSystemState() {
-  const defaults = { oobeComplete: false, hostname: 'owdos', theme: 'default', language: 'English (US)', keyboard: 'US', accessibility: false, reduceMotion: false, diagnostics: false, firmwareVersion: '1.2.0', bootloaderVersion: '0.8.0', kernelVersion: '0.5.0-ow', tpmVersion: '2.0.1-virtual', devMode: false, managed: false, lastGoodSnapshot: null };
+  const defaults = { oobeComplete: false, hostname: 'owdos', theme: 'midnight', language: 'English (US)', keyboard: 'US', accessibility: false, reduceMotion: false, diagnostics: false, firmwareVersion: '1.2.0', bootloaderVersion: '0.9.0', kernelVersion: '0.6.0-ow', tpmVersion: '2.0.1-virtual', devMode: false, managed: false, lastGoodSnapshot: null };
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey('device')) || 'null');
     state.system = { ...defaults, ...(saved || {}) };
@@ -1077,7 +1077,7 @@ function revertDevice() {
   state.installed = Array.isArray(snapshot.installed) ? snapshot.installed : state.installed;
   state.system = { ...state.system, ...(snapshot.system || {}), lastGoodSnapshot: snapshot.label || 'last-good' };
   saveDisk(); saveSystemState();
-  location.assign(`${location.pathname}?owdos=bootloader`);
+  location.assign('index.html?loader=1');
 }
 
 function setDevMode(enabled) {
@@ -1240,7 +1240,7 @@ function recoveryAction(action) {
   }
   if (action === 'settings') {
     if (!state.user) return status.textContent = 'Sign in first to reset settings.';
-    state.system = { oobeComplete: false, hostname: 'owdos', theme: 'default' };
+    state.system = { oobeComplete: false, hostname: 'owdos', theme: 'midnight' };
     saveSystemState();
     document.documentElement.dataset.theme = 'default';
     status.textContent = 'OWDOS settings reset. The next boot will run OOBE.';
@@ -1269,7 +1269,7 @@ function powerwash() {
   keys.forEach(key => localStorage.removeItem(key));
   state.disk = defaultDisk(usernameFor(state.user));
   state.installed = [];
-  state.system = { oobeComplete: false, hostname: 'owdos', theme: 'default', language: 'English (US)', keyboard: 'US', accessibility: false, reduceMotion: false, diagnostics: false };
+  state.system = { oobeComplete: false, hostname: 'owdos', theme: 'midnight', language: 'English (US)', keyboard: 'US', accessibility: false, reduceMotion: false, diagnostics: false };
   saveSystemState();
   state.windows.forEach(item => item.win.remove());
   state.windows.clear();
@@ -1278,7 +1278,10 @@ function powerwash() {
 
 function rebootInto(mode) {
   saveDisk(); saveSystemState();
-  location.assign(`${location.pathname}?owdos=${encodeURIComponent(mode)}`);
+  if (mode === 'recovery') return location.assign('recovery.html?from=desktop');
+  if (mode === 'bootloader') return location.assign('index.html?loader=1');
+  if (mode === 'devmode') return location.assign('devmode.html?from=desktop');
+  location.assign('index.html?loader=1');
 }
 
 function shutdownSystem() {
@@ -1426,7 +1429,53 @@ async function bootIntoSession(session) {
   }
 }
 
+async function bootDesktopPage() {
+  loadSystemState();
+  const params = new URLSearchParams(location.search);
+  const guest = params.get('guest') === '1';
+  if (guest) {
+    state.mode = 'guest';
+    state.guestId = sessionStorage.getItem('owdos:guest:id') || `guest-${crypto.randomUUID()}`;
+    sessionStorage.setItem('owdos:guest:id', state.guestId);
+    state.user = null;
+  } else {
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) return location.assign('welcome.html');
+    state.mode = 'user';
+    state.user = data.session.user;
+    state.guestId = null;
+  }
+  if (!state.system.oobeComplete) return location.assign('oobe.html');
+  await loadLocalState();
+  showDesktop();
+  state.booted = true;
+  document.querySelectorAll('.app-launch').forEach(button => button.onclick = () => launch(button.dataset.app));
+  $('launcher').onclick = () => launcherMenu.classList.toggle('hidden');
+  $('clock').onclick = () => launch('monitor');
+  window.addEventListener('beforeunload', () => { saveDisk(); saveSystemState(); });
+  document.addEventListener('click', event => {
+    if (!event.target.closest('#launcher') && !event.target.closest('#launcher-menu')) launcherMenu.classList.add('hidden');
+    if (!event.target.closest('#desktop-context')) $('desktop-context').classList.add('hidden');
+  });
+  setInterval(updateClock, 30000);
+  const held = new Set();
+  const keydown = event => {
+    held.add(event.code);
+    if (['Digit1','Digit4','Equal'].every(code => held.has(code))) { event.preventDefault(); held.clear(); return location.assign('recovery.html?from=desktop&reason=key-chord'); }
+    if (event.key === 'F12' || event.key === 'Escape') { event.preventDefault(); location.assign('index.html?loader=1'); }
+  };
+  const keyup = event => held.delete(event.code);
+  window.addEventListener('keydown', keydown);
+  window.addEventListener('keyup', keyup);
+  supabase.auth.onAuthStateChange(event => {
+    if (event === 'SIGNED_OUT') location.assign('welcome.html');
+    if (event === 'PASSWORD_RECOVERY') location.assign('login.html?recovery=1');
+  });
+  if (!findWindowByApp('files')) setTimeout(() => launch('files'), 220);
+}
+
 async function bootApp() {
+  if (document.body.dataset.page === 'desktop') return bootDesktopPage();
   document.querySelectorAll('[data-auth-tab]').forEach(button => button.onclick = () => setAuthMode(button.dataset.authTab));
   $('auth-form').addEventListener('submit', handleAuth);
   $('forgot-password').onclick = forgotPassword;
