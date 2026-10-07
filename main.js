@@ -95,7 +95,14 @@ async function handleAuth(event) {
       if (error) throw error;
     }
   } catch (error) {
-    showMessage(error.message || 'Authentication failed.', 'error');
+    const code = error?.code || error?.status;
+    if (state.authMode === 'signin' && code === 'email_not_confirmed') {
+      showMessage('Confirm your email address before signing in.', 'error');
+    } else if (state.authMode === 'signin' && code === 'invalid_credentials') {
+      showMessage('The email or password is incorrect.', 'error');
+    } else {
+      showMessage(error.message || 'Authentication failed.', 'error');
+    }
   } finally {
     submit.disabled = false;
   }
@@ -257,6 +264,7 @@ function closeWindow(id) {
   const item = state.windows.get(id);
   if (!item) return;
   if (item.app === 'terminal' && state.shell) {
+    syncGuestHome();
     try { state.shell.kill?.(); } catch {}
     state.shell = null;
     state.shellReady = false;
@@ -373,52 +381,102 @@ async function startBash(term, fit) {
     return;
   }
   if (!crossOriginIsolated) {
-    term.writeln('\r\nOWDOS: this page is not cross-origin isolated yet. Reloading usually fixes it on static hosting.');
+    term.writeln('\r\nOWDOS: the browser needs cross-origin isolation for the Bash runtime. Reload this page after the service worker finishes installing.');
     return;
   }
+
   term.write('\x1b[1;36mOWDOS\x1b[0m starting Bash...\r\n');
   const username = usernameFor(state.user);
   const files = {};
   Object.entries(state.disk).forEach(([path, node]) => {
-    if (node.type !== 'file') return;
-    if (!path.startsWith(`/home/${username}/`)) return;
+    if (node.type !== 'file' || !path.startsWith(`/home/${username}/`)) return;
     files[path.replace(/^\//, '')] = node.content || '';
   });
+
   const wasmer = new Wasmer();
   const sandbox = await wasmer.sandboxes.create({
     packages: ['wasmer/bash@=1.0.25'],
     files
   });
-  state.bash = { wasmer, sandbox };
-  const process = await sandbox.command('bash', ['--noprofile', '--norc', '-i']).spawn({ terminal: { columns: term.cols, rows: term.rows } });
+  state.bash = { wasmer, sandbox, syncTimer: null };
+
+  const process = await sandbox.command('bash', ['--noprofile', '--norc', '-i']).spawn({
+    terminal: { columns: term.cols, rows: term.rows }
+  });
   state.shell = process;
   state.shellReady = true;
-  const encoder = new TextEncoder();
-  const stdin = process.stdin;
-  await stdin.write(encoder.encode(`export USER=${username}\nexport LOGNAME=${username}\nexport HOME=/workspace/home/${username}\ncd "$HOME"\nexport PS1='\\[\\e[1;36m\\]${username}@owdos\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]$ '\nclear\n`));
-  process.stdout.pipeTo(new WritableStream({ write: chunk => term.write(chunk) })).catch(() => {});
-  process.stderr.pipeTo(new WritableStream({ write: chunk => term.write(chunk) })).catch(() => {});
+
+  await process.stdin.write(`export USER=${shellQuote(username)}\nexport LOGNAME=${shellQuote(username)}\nexport HOME=/workspace/home/${shellQuote(username)}\ncd "$HOME"\nexport PS1='\\[\\e[1;36m\\]${username}@owdos\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]$ '\nclear\n`);
+
+  const writeStream = async stream => {
+    if (!stream) return;
+    try {
+      if (typeof stream[Symbol.asyncIterator] === 'function') {
+        for await (const chunk of stream) {
+          term.write(chunk instanceof Uint8Array ? chunk : String(chunk));
+        }
+        return;
+      }
+      if (typeof stream.lines === 'function') {
+        for await (const line of stream.lines()) term.write(String(line));
+        return;
+      }
+      if (typeof stream.getReader === 'function') {
+        const reader = stream.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          term.write(typeof value === 'string' ? value : decoder.decode(value, { stream: true }));
+        }
+      }
+    } catch {}
+  };
+
+  writeStream(process.stdout);
+  writeStream(process.stderr);
+
   term.onData(async data => {
-    try { await stdin.write(encoder.encode(data)); }
-    catch { term.writeln('\r\nOWDOS: Bash session closed.'); }
+    if (!state.shellReady) return;
+    try {
+      await process.stdin.write(data);
+    } catch {
+      state.shellReady = false;
+      term.writeln('\r\nOWDOS: Bash session closed.');
+    }
   });
-  const sync = async () => { if (state.shellReady) await syncGuestHome(); };
-  term.onResize(({ cols, rows }) => process.resizeTerminal(cols, rows));
+
+  const sync = () => syncGuestHome();
+  state.bash.syncTimer = setInterval(sync, 4000);
+  term.onResize(({ cols, rows }) => {
+    try { process.resizeTerminal(cols, rows); } catch {}
+  });
+
   process.wait().then(async () => {
-    await sync();
+    if (state.bash?.syncTimer) clearInterval(state.bash.syncTimer);
+    await syncGuestHome();
     state.shell = null;
     state.shellReady = false;
     state.bash = null;
     try { await sandbox.close(); } catch {}
     try { await wasmer.close(); } catch {}
   }).catch(async () => {
+    if (state.bash?.syncTimer) clearInterval(state.bash.syncTimer);
+    await syncGuestHome();
     state.shell = null;
     state.shellReady = false;
     state.bash = null;
     try { await sandbox.close(); } catch {}
     try { await wasmer.close(); } catch {}
   });
-  window.addEventListener('resize', () => fit.fit());
+
+  const resize = () => fit.fit();
+  window.addEventListener('resize', resize);
+  state.bash.resize = resize;
+}
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'"'"'`)}'`;
 }
 
 async function syncGuestHome() {
@@ -557,30 +615,178 @@ function renamePath(path, newName) {
 
 function createBrowserApp() {
   const root = appRoot();
-  const bar = document.createElement('div'); bar.className = 'app-toolbar';
-  const back = document.createElement('button'); back.className = 'tool-btn'; back.textContent = '←';
-  const forward = document.createElement('button'); forward.className = 'tool-btn'; forward.textContent = '→';
-  const reload = document.createElement('button'); reload.className = 'tool-btn'; reload.textContent = '↻';
-  const address = document.createElement('input'); address.className = 'path'; address.value = 'https://example.com';
+  const bar = document.createElement('div');
+  bar.className = 'app-toolbar browser-toolbar';
+  const back = document.createElement('button'); back.className = 'tool-btn'; back.textContent = '←'; back.title = 'Back';
+  const forward = document.createElement('button'); forward.className = 'tool-btn'; forward.textContent = '→'; forward.title = 'Forward';
+  const reload = document.createElement('button'); reload.className = 'tool-btn'; reload.textContent = '↻'; reload.title = 'Reload';
+  const address = document.createElement('input'); address.className = 'path browser-address'; address.value = 'https://example.com'; address.spellcheck = false;
   const go = document.createElement('button'); go.className = 'tool-btn'; go.textContent = 'Go';
-  const frame = document.createElement('iframe'); frame.className = 'browser-frame'; frame.referrerPolicy = 'no-referrer'; frame.allow = 'fullscreen';
-  frame.sandbox = 'allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts';
-  bar.append(back, forward, reload, address, go);
+  const status = document.createElement('div'); status.className = 'browser-status';
+  const frame = document.createElement('iframe');
+  frame.className = 'browser-frame';
+  frame.referrerPolicy = 'no-referrer';
+  frame.allow = 'fullscreen';
+  frame.sandbox = 'allow-forms allow-modals allow-popups allow-presentation allow-scripts';
+
+  bar.append(back, forward, reload, address, go, status);
   root.append(bar, frame);
-  const navigate = value => {
-    let url = value.trim();
-    if (!url) return;
-    if (!/^https?:\/\//i.test(url)) url = `https://www.google.com/search?q=${encodeURIComponent(url)}`;
-    address.value = url;
-    frame.src = url;
+
+  const history = ['https://example.com'];
+  let historyIndex = 0;
+  let navigationToken = 0;
+  let currentUrl = history[0];
+
+  const proxyUrls = url => [
+    `https://proxy.cors.dev/raw?url=${encodeURIComponent(url)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+  ];
+
+  const normalizeWebUrl = value => {
+    const raw = value.trim();
+    if (!raw) return null;
+    if (/^(javascript:|data:|blob:|file:)/i.test(raw)) return null;
+    if (/^(mailto:|tel:)/i.test(raw)) return raw;
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return raw;
+    if (/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(raw)) return `https://${raw}`;
+    return `https://www.google.com/search?q=${encodeURIComponent(raw)}`;
   };
+
+  const isWebPage = url => /^https?:\/\//i.test(url);
+
+  const proxyFetch = async url => {
+    let lastError = null;
+    for (const proxy of proxyUrls(url)) {
+      try {
+        const response = await fetch(proxy, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`Proxy returned HTTP ${response.status}`);
+        return await response.text();
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError || new Error('No browser proxy was available.');
+  };
+
+  const injectBrowserBridge = (html, targetUrl) => {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    if (!doc.documentElement) return html;
+
+    doc.querySelectorAll('meta[http-equiv="Content-Security-Policy"], base').forEach(el => el.remove());
+    const base = doc.createElement('base');
+    base.href = targetUrl;
+    doc.head.prepend(base);
+
+    const bridge = doc.createElement('script');
+    bridge.textContent = `
+      (() => {
+        const send = message => parent.postMessage({ source: 'owdos-browser', ...message }, '*');
+        document.addEventListener('click', event => {
+          const link = event.target.closest && event.target.closest('a[href]');
+          if (!link) return;
+          const href = link.getAttribute('href');
+          if (!href || /^(javascript:|data:|blob:|mailto:|tel:|#)/i.test(href)) return;
+          event.preventDefault();
+          send({ type: 'navigate', url: new URL(href, ${JSON.stringify(targetUrl)}).href });
+        }, true);
+        document.addEventListener('submit', event => {
+          const form = event.target;
+          const method = (form.method || 'get').toLowerCase();
+          if (method !== 'get') return;
+          event.preventDefault();
+          const target = new URL(form.action || ${JSON.stringify(targetUrl)}, ${JSON.stringify(targetUrl)});
+          const data = new FormData(form);
+          for (const [key, value] of data.entries()) target.searchParams.append(key, value);
+          send({ type: 'navigate', url: target.href });
+        }, true);
+        const oldOpen = window.open;
+        window.open = (url) => {
+          if (url) send({ type: 'navigate', url: new URL(url, ${JSON.stringify(targetUrl)}).href });
+          return null;
+        };
+        history.pushState = ((old) => (...args) => {
+          const result = old.apply(history, args);
+          const next = new URL(args[2] || location.href, ${JSON.stringify(targetUrl)}).href;
+          send({ type: 'navigate', url: next });
+          return result;
+        })(history.pushState);
+        history.replaceState = ((old) => (...args) => {
+          const result = old.apply(history, args);
+          const next = new URL(args[2] || location.href, ${JSON.stringify(targetUrl)}).href;
+          send({ type: 'replace', url: next });
+          return result;
+        })(history.replaceState);
+      })();
+    `;
+    doc.body.append(bridge);
+    return '<!doctype html>' + doc.documentElement.outerHTML;
+  };
+
+  const render = async (url, push = true) => {
+    if (!isWebPage(url)) {
+      status.textContent = 'Unsupported URL';
+      return;
+    }
+    const token = ++navigationToken;
+    status.textContent = 'Loading…';
+    address.value = url;
+    currentUrl = url;
+    try {
+      const html = await proxyFetch(url);
+      if (token !== navigationToken) return;
+      frame.srcdoc = injectBrowserBridge(html, url);
+      status.textContent = 'Proxied';
+      if (push) {
+        history.splice(historyIndex + 1);
+        history.push(url);
+        historyIndex = history.length - 1;
+      }
+      back.disabled = historyIndex <= 0;
+      forward.disabled = historyIndex >= history.length - 1;
+    } catch (error) {
+      if (token !== navigationToken) return;
+      status.textContent = 'Proxy error';
+      frame.srcdoc = `<!doctype html><html><body style="margin:0;background:#101216;color:#e5e7eb;font:16px system-ui;padding:32px"><h2>Could not load this site</h2><p>${escapeHtml(error.message || 'The browser proxy failed.')}</p><p>Some sites block public proxies or are too large to proxy. Try another address.</p></body></html>`;
+    }
+  };
+
+  const navigate = value => {
+    const url = normalizeWebUrl(value);
+    if (!url || !isWebPage(url)) {
+      status.textContent = 'Invalid web address';
+      return;
+    }
+    render(url, true);
+  };
+
   go.onclick = () => navigate(address.value);
   address.addEventListener('keydown', event => { if (event.key === 'Enter') navigate(address.value); });
-  back.onclick = () => { try { frame.contentWindow.history.back(); } catch { toast('This site does not allow in-frame history control.'); } };
-  forward.onclick = () => { try { frame.contentWindow.history.forward(); } catch { toast('This site does not allow in-frame history control.'); } };
-  reload.onclick = () => frame.contentWindow.location.reload();
-  openWindow('browser', 'Browser', root, { width: 860, height: 560 });
-  navigate(address.value);
+  back.onclick = () => {
+    if (historyIndex <= 0) return;
+    historyIndex -= 1;
+    render(history[historyIndex], false);
+  };
+  forward.onclick = () => {
+    if (historyIndex >= history.length - 1) return;
+    historyIndex += 1;
+    render(history[historyIndex], false);
+  };
+  reload.onclick = () => render(currentUrl, false);
+
+  window.addEventListener('message', event => {
+    if (event.source !== frame.contentWindow) return;
+    if (event.data?.source !== 'owdos-browser') return;
+    if (event.data.type === 'navigate') navigate(event.data.url);
+    if (event.data.type === 'replace') {
+      const url = normalizeWebUrl(event.data.url);
+      if (!url) return;
+      history[historyIndex] = url;
+      render(url, false);
+    }
+  });
+
+  openWindow('browser', 'Browser', root, { width: 900, height: 580 });
+  render(currentUrl, false);
 }
 
 function createStoreApp() {
