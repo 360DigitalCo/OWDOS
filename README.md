@@ -1,45 +1,59 @@
 # OWDOS
 
-OWDOS (Ordbit Web Distro Operating System) is a browser-native operating system built around a real desktop, a local virtual filesystem, a real Bash runtime, a web browser, and a community app registry.
+Ordbit Web Distro Operating System is a browser-native operating system foundation.
 
-## Current foundation
+## What is in the current build
 
-- Email/password accounts through Supabase Auth
-- Local-first OWDOS filesystem stored in browser storage
-- Real Bash 1.0.25 through Wasmer WASIX
-- xterm.js terminal UI
-- Window manager with move, minimize, maximize, close, taskbar, and launcher
-- Files app with folders, text files, editor, rename, delete, and local persistence
-- Browser app with address bar, navigation, reload, and iframe isolation
-- OWD Store backed by `apps.json`
-- Installable third-party apps stored locally
-- GitHub-PR-friendly app registry format
-- PWA manifest
+- Supabase email/password accounts and persistent sessions
+- Real Bash through the Wasmer browser runtime
+- Per-account local virtual filesystem
+- Files app with editing and file management
+- Proxied web browser using Jina Reader
+- OWD Store with GitHub-friendly app registry structure
+- Window manager, taskbar, launcher, themes and system monitor
+- Bootloader
+- Recovery environment
+- Filesystem repair
+- OOBE first-run setup
+- Powerwash that wipes local OWDOS data without deleting the Supabase account
+- Local system settings and kernel diagnostics
 
-Supabase is intentionally used only for account authentication. OWDOS files, installed apps, and desktop state stay on the user's device.
+## Storage model
 
-## Files
+Supabase is used for authentication only. OWDOS files, installed applications and system settings stay in the browser's local storage. No service-role key is shipped to the client.
 
-The foundation intentionally stays small. There is no framework, bundler, generated component tree, or giant dependency directory.
+## App registry
 
-## Static hosting
-
-OWDOS uses Wasmer's browser runtime, which requires a cross-origin-isolated page. `coi-serviceworker.js` adds the required headers for static hosts such as GitHub Pages. The first visit may reload once after the service worker takes control.
-
-## Adding an app
-
-Add an entry to `apps.json`:
+Apps can be added through pull requests using the registry format in `apps.json`.
 
 ```json
 {
-  "id": "my-app",
-  "name": "My App",
+  "id": "example",
+  "name": "Example App",
   "version": "1.0.0",
-  "author": "your-name",
-  "icon": "★",
-  "description": "What the app does.",
-  "entry": "apps/my-app.html"
+  "author": "Your Name",
+  "icon": "EX",
+  "description": "An OWDOS app.",
+  "entry": "apps/example.html"
 }
 ```
 
-Add the app HTML at the referenced path and submit a pull request. The OWD Store will fetch the source, store it locally, and launch it in a sandboxed iframe.
+## Browser
+
+The browser uses `https://r.jina.ai/<url>` as its server-side reader. This avoids depending on public CORS relays that routinely rate-limit or omit CORS headers. Jina's current public Reader endpoint is rate-limited without an API key, so some heavy or restricted sites may still refuse automated fetching.
+
+## Recovery controls
+
+Press **Esc** during boot to enter the bootloader.
+
+From the bootloader:
+
+- Boot OWDOS
+- Recovery mode
+- Power off
+
+Recovery mode can repair missing local filesystem directories, reset OWDOS settings, powerwash the current account, or return to the bootloader.
+
+## Development
+
+The code intentionally stays compact. The core system currently lives in `index.html`, `style.css` and `main.js`, with only the runtime support files around them.

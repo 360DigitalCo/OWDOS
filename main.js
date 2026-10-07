@@ -30,7 +30,11 @@ const state = {
   termFit: null,
   shellReady: false,
   saveTimer: null,
-  booted: false
+  booted: false,
+  bootMode: null,
+  oobe: null,
+  system: { oobeComplete: false, hostname: 'owdos', theme: 'default' },
+  kernel: null
 };
 
 const defaultDisk = username => ({
@@ -53,6 +57,85 @@ const defaultDisk = username => ({
 
 function storageKey(name) {
   return `owdos:${name}`;
+}
+
+function userStorageKey(name) {
+  return storageKey(`${name}:${state.user.id}`);
+}
+
+function loadSystemState() {
+  const key = userStorageKey('system');
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || 'null');
+    state.system = { oobeComplete: false, hostname: 'owdos', theme: 'default', ...(saved || {}) };
+  } catch {
+    state.system = { oobeComplete: false, hostname: 'owdos', theme: 'default' };
+  }
+  document.documentElement.dataset.theme = state.system.theme || 'default';
+}
+
+function saveSystemState() {
+  if (!state.user) return;
+  try {
+    localStorage.setItem(userStorageKey('system'), JSON.stringify(state.system));
+  } catch {}
+}
+
+function kernelLog(message, level = 'info') {
+  if (!state.kernel) return;
+  const entry = { time: new Date().toISOString(), level, message };
+  state.kernel.logs.push(entry);
+  if (state.kernel.logs.length > 150) state.kernel.logs.shift();
+}
+
+function createKernel() {
+  const kernel = {
+    version: '0.4.0',
+    pidNext: 2,
+    processes: new Map(),
+    logs: [],
+    bootId: crypto.randomUUID(),
+    startedAt: Date.now(),
+    spawn(name, type = 'service') {
+      const pid = this.pidNext++;
+      const process = { pid, name, type, startedAt: Date.now(), state: 'running' };
+      this.processes.set(pid, process);
+      kernelLog(`pid ${pid}: ${name} started`);
+      return process;
+    },
+    stop(pid) {
+      const process = this.processes.get(pid);
+      if (!process) return false;
+      process.state = 'stopped';
+      this.processes.delete(pid);
+      kernelLog(`pid ${pid}: ${process.name} stopped`);
+      return true;
+    },
+    exec(name, type = 'process') {
+      return this.spawn(name, type);
+    },
+    uptime() {
+      return Math.max(0, Date.now() - this.startedAt);
+    },
+    snapshot() {
+      return [...this.processes.values()].map(process => ({ ...process }));
+    }
+  };
+  state.kernel = kernel;
+  kernel.spawn('init', 'kernel');
+  kernel.spawn('dbus', 'service');
+  kernel.spawn('desktop', 'service');
+  window.owdos = { kernel, fs: state.disk, auth: supabase };
+  return kernel;
+}
+
+function formatUptime(ms) {
+  const total = Math.floor(ms / 1000);
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return days ? `${days}d ${hours}h ${minutes}m` : hours ? `${hours}h ${minutes}m ${seconds}s` : `${minutes}m ${seconds}s`;
 }
 
 function showMessage(text, type = '') {
@@ -130,6 +213,9 @@ function userLabel(user) {
 }
 
 async function loadLocalState() {
+  loadSystemState();
+  createKernel();
+  kernelLog('mounting local filesystem');
   const username = usernameFor(state.user);
   const diskKey = storageKey(`disk:${state.user.id}`);
   const installedKey = storageKey(`installed:${state.user.id}`);
@@ -446,7 +532,7 @@ async function startBash(term, fit) {
     }
   });
 
-  const sync = () => syncGuestHome();
+  const sync = () => syncGuestHome(true);
   state.bash.syncTimer = setInterval(sync, 4000);
   term.onResize(({ cols, rows }) => {
     try { process.resizeTerminal(cols, rows); } catch {}
@@ -479,7 +565,7 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'"'"'`)}'`;
 }
 
-async function syncGuestHome() {
+async function syncGuestHome(silent = false) {
   if (!state.bash) return;
   const username = usernameFor(state.user);
   const root = `home/${username}`;
@@ -505,7 +591,7 @@ async function syncGuestHome() {
     ensureDir(`/${root}`);
     await walk(root);
     saveDisk();
-    toast('Bash home synced to the local OWDOS disk.');
+    if (!silent) toast('Bash home synced to the local OWDOS disk.');
   } catch {}
 }
 
@@ -613,6 +699,36 @@ function renamePath(path, newName) {
   saveDisk();
 }
 
+function markdownToHtml(markdown) {
+  const safe = escapeHtml(markdown || '').replace(/\r/g, '');
+  const lines = safe.split('\n');
+  const out = [];
+  let list = false;
+  for (const line of lines) {
+    if (/^#{1,6}\s/.test(line)) {
+      if (list) { out.push('</ul>'); list = false; }
+      const level = line.match(/^#+/)[0].length;
+      out.push(`<h${level}>${line.slice(level + 1)}</h${level}>`);
+    } else if (/^[-*]\s+/.test(line)) {
+      if (!list) { out.push('<ul>'); list = true; }
+      out.push(`<li>${line.replace(/^[-*]\s+/, '')}</li>`);
+    } else if (!line.trim()) {
+      if (list) { out.push('</ul>'); list = false; }
+      out.push('');
+    } else {
+      if (list) { out.push('</ul>'); list = false; }
+      out.push(`<p>${line}</p>`);
+    }
+  }
+  if (list) out.push('</ul>');
+  let html = out.join('\n');
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" data-url="$2">$1</a>');
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  return html;
+}
+
 function createBrowserApp() {
   const root = appRoot();
   const bar = document.createElement('div');
@@ -623,24 +739,15 @@ function createBrowserApp() {
   const address = document.createElement('input'); address.className = 'path browser-address'; address.value = 'https://example.com'; address.spellcheck = false;
   const go = document.createElement('button'); go.className = 'tool-btn'; go.textContent = 'Go';
   const status = document.createElement('div'); status.className = 'browser-status';
-  const frame = document.createElement('iframe');
-  frame.className = 'browser-frame';
-  frame.referrerPolicy = 'no-referrer';
-  frame.allow = 'fullscreen';
-  frame.sandbox = 'allow-forms allow-modals allow-popups allow-presentation allow-scripts';
-
+  const view = document.createElement('div'); view.className = 'browser-view';
   bar.append(back, forward, reload, address, go, status);
-  root.append(bar, frame);
+  root.append(bar, view);
 
   const history = ['https://example.com'];
   let historyIndex = 0;
   let navigationToken = 0;
   let currentUrl = history[0];
-
-  const proxyUrls = url => [
-    `https://proxy.cors.dev/raw?url=${encodeURIComponent(url)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
-  ];
+  let lastContent = '';
 
   const normalizeWebUrl = value => {
     const raw = value.trim();
@@ -652,140 +759,80 @@ function createBrowserApp() {
     return `https://www.google.com/search?q=${encodeURIComponent(raw)}`;
   };
 
-  const isWebPage = url => /^https?:\/\//i.test(url);
+  const readerUrl = url => `https://r.jina.ai/${url}`;
 
-  const proxyFetch = async url => {
-    let lastError = null;
-    for (const proxy of proxyUrls(url)) {
-      try {
-        const response = await fetch(proxy, { cache: 'no-store' });
-        if (!response.ok) throw new Error(`Proxy returned HTTP ${response.status}`);
-        return await response.text();
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    throw lastError || new Error('No browser proxy was available.');
+  const renderMarkdown = (data, url) => {
+    const title = escapeHtml(data?.title || new URL(url).hostname);
+    const content = data?.content || '';
+    lastContent = content;
+    view.innerHTML = `<article class="browser-page"><header><div class="browser-secure">WEB</div><div><h1>${title}</h1><div class="browser-url">${escapeHtml(url)}</div></div></header><div class="browser-content">${markdownToHtml(content)}</div></article>`;
+    view.querySelectorAll('a[data-url]').forEach(link => link.addEventListener('click', event => {
+      event.preventDefault();
+      navigate(link.dataset.url);
+    }));
+    view.querySelectorAll('a[href]').forEach(link => link.setAttribute('target', '_blank'));
   };
 
-  const injectBrowserBridge = (html, targetUrl) => {
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    if (!doc.documentElement) return html;
-
-    doc.querySelectorAll('meta[http-equiv="Content-Security-Policy"], base').forEach(el => el.remove());
-    const base = doc.createElement('base');
-    base.href = targetUrl;
-    doc.head.prepend(base);
-
-    const bridge = doc.createElement('script');
-    bridge.textContent = `
-      (() => {
-        const send = message => parent.postMessage({ source: 'owdos-browser', ...message }, '*');
-        document.addEventListener('click', event => {
-          const link = event.target.closest && event.target.closest('a[href]');
-          if (!link) return;
-          const href = link.getAttribute('href');
-          if (!href || /^(javascript:|data:|blob:|mailto:|tel:|#)/i.test(href)) return;
-          event.preventDefault();
-          send({ type: 'navigate', url: new URL(href, ${JSON.stringify(targetUrl)}).href });
-        }, true);
-        document.addEventListener('submit', event => {
-          const form = event.target;
-          const method = (form.method || 'get').toLowerCase();
-          if (method !== 'get') return;
-          event.preventDefault();
-          const target = new URL(form.action || ${JSON.stringify(targetUrl)}, ${JSON.stringify(targetUrl)});
-          const data = new FormData(form);
-          for (const [key, value] of data.entries()) target.searchParams.append(key, value);
-          send({ type: 'navigate', url: target.href });
-        }, true);
-        const oldOpen = window.open;
-        window.open = (url) => {
-          if (url) send({ type: 'navigate', url: new URL(url, ${JSON.stringify(targetUrl)}).href });
-          return null;
-        };
-        history.pushState = ((old) => (...args) => {
-          const result = old.apply(history, args);
-          const next = new URL(args[2] || location.href, ${JSON.stringify(targetUrl)}).href;
-          send({ type: 'navigate', url: next });
-          return result;
-        })(history.pushState);
-        history.replaceState = ((old) => (...args) => {
-          const result = old.apply(history, args);
-          const next = new URL(args[2] || location.href, ${JSON.stringify(targetUrl)}).href;
-          send({ type: 'replace', url: next });
-          return result;
-        })(history.replaceState);
-      })();
-    `;
-    doc.body.append(bridge);
-    return '<!doctype html>' + doc.documentElement.outerHTML;
+  const renderError = (message, url, statusCode = '') => {
+    view.innerHTML = `<div class="browser-error"><div class="browser-error-code">${statusCode || 'WEB'}</div><h2>Couldn’t load this page</h2><p>${escapeHtml(message)}</p><div class="browser-error-url">${escapeHtml(url)}</div><p class="muted">OWDOS Browser uses a server-side reader instead of unsafe public CORS relays. Sites that deny automated fetching may still reject the request.</p><button class="tool-btn" data-retry>Try again</button></div>`;
+    view.querySelector('[data-retry]').onclick = () => render(url, false);
   };
 
-  const render = async (url, push = true) => {
-    if (!isWebPage(url)) {
-      status.textContent = 'Unsupported URL';
-      return;
-    }
-    const token = ++navigationToken;
-    status.textContent = 'Loading…';
-    address.value = url;
-    currentUrl = url;
+  const fetchPage = async url => {
+    const response = await fetch(readerUrl(url), { cache: 'no-store', headers: { Accept: 'application/json' } });
+    if (!response.ok) throw Object.assign(new Error(`Web reader returned HTTP ${response.status}.`), { status: response.status });
+    const raw = await response.text();
     try {
-      const html = await proxyFetch(url);
+      const json = JSON.parse(raw);
+      const data = json?.data || json;
+      return { title: data?.title, content: data?.content || data?.text || '' };
+    } catch {
+      return { title: new URL(url).hostname, content: raw };
+    }
+  };
+
+  async function render(url, push = true) {
+    if (!/^https?:\/\//i.test(url)) return;
+    const token = ++navigationToken;
+    currentUrl = url;
+    address.value = url;
+    status.textContent = 'Connecting…';
+    view.innerHTML = '<div class="browser-loading"><div class="spinner"></div><strong>Connecting to the web</strong><span>Fetching and simplifying the page...</span></div>';
+    try {
+      const data = await fetchPage(url);
       if (token !== navigationToken) return;
-      frame.srcdoc = injectBrowserBridge(html, url);
-      status.textContent = 'Proxied';
+      renderMarkdown(data, url);
+      status.textContent = 'Connected';
       if (push) {
         history.splice(historyIndex + 1);
         history.push(url);
         historyIndex = history.length - 1;
       }
-      back.disabled = historyIndex <= 0;
-      forward.disabled = historyIndex >= history.length - 1;
     } catch (error) {
       if (token !== navigationToken) return;
-      status.textContent = 'Proxy error';
-      frame.srcdoc = `<!doctype html><html><body style="margin:0;background:#101216;color:#e5e7eb;font:16px system-ui;padding:32px"><h2>Could not load this site</h2><p>${escapeHtml(error.message || 'The browser proxy failed.')}</p><p>Some sites block public proxies or are too large to proxy. Try another address.</p></body></html>`;
+      status.textContent = `HTTP ${error.status || 'ERR'}`;
+      renderError(error.message || 'The web reader could not fetch the page.', url, error.status ? `HTTP ${error.status}` : 'ERR');
     }
-  };
+    back.disabled = historyIndex <= 0;
+    forward.disabled = historyIndex >= history.length - 1;
+  }
 
-  const navigate = value => {
+  function navigate(value) {
     const url = normalizeWebUrl(value);
-    if (!url || !isWebPage(url)) {
-      status.textContent = 'Invalid web address';
+    if (!url || !/^https?:\/\//i.test(url)) {
+      status.textContent = 'Invalid address';
       return;
     }
     render(url, true);
-  };
+  }
 
   go.onclick = () => navigate(address.value);
   address.addEventListener('keydown', event => { if (event.key === 'Enter') navigate(address.value); });
-  back.onclick = () => {
-    if (historyIndex <= 0) return;
-    historyIndex -= 1;
-    render(history[historyIndex], false);
-  };
-  forward.onclick = () => {
-    if (historyIndex >= history.length - 1) return;
-    historyIndex += 1;
-    render(history[historyIndex], false);
-  };
+  back.onclick = () => { if (historyIndex > 0) { historyIndex--; render(history[historyIndex], false); } };
+  forward.onclick = () => { if (historyIndex < history.length - 1) { historyIndex++; render(history[historyIndex], false); } };
   reload.onclick = () => render(currentUrl, false);
 
-  window.addEventListener('message', event => {
-    if (event.source !== frame.contentWindow) return;
-    if (event.data?.source !== 'owdos-browser') return;
-    if (event.data.type === 'navigate') navigate(event.data.url);
-    if (event.data.type === 'replace') {
-      const url = normalizeWebUrl(event.data.url);
-      if (!url) return;
-      history[historyIndex] = url;
-      render(url, false);
-    }
-  });
-
-  openWindow('browser', 'Browser', root, { width: 900, height: 580 });
+  openWindow('browser', 'Browser', root, { width: 980, height: 620 });
   render(currentUrl, false);
 }
 
@@ -825,7 +872,7 @@ function renderStore(root) {
           const response = await fetch(`./${app.entry}`);
           if (!response.ok) throw new Error(`App source returned ${response.status}.`);
           const source = await response.text();
-          localStorage.setItem(storageKey(`app:${app.id}`), JSON.stringify({ ...app, source }));
+          localStorage.setItem(userStorageKey(`app:${app.id}`), JSON.stringify({ ...app, source }));
           state.installed.push(app.id);
           saveDisk();
           toast(`${app.name} installed.`);
@@ -840,7 +887,7 @@ function renderStore(root) {
 }
 
 function launchInstalledApp(id) {
-  const app = JSON.parse(localStorage.getItem(storageKey(`app:${id}`)) || 'null');
+  const app = JSON.parse(localStorage.getItem(userStorageKey(`app:${id}`)) || 'null');
   if (!app?.source) return toast('Installed app data is missing.');
   const frame = document.createElement('iframe');
   frame.style.cssText = 'width:100%;height:100%;border:0;background:#101216;';
@@ -853,15 +900,31 @@ function createSettingsApp() {
   const root = appRoot();
   const settings = document.createElement('div'); settings.className = 'settings';
   const user = state.user;
-  settings.innerHTML = `<h2>Settings</h2><div class="muted">OWDOS account and local system controls.</div><div class="settings-section"><div class="setting-row"><div><strong>Account</strong><span>${escapeHtml(user.email || '')}</span></div><button class="tool-btn" data-action="logout">Sign out</button></div><div class="setting-row"><div><strong>Username</strong><span>${escapeHtml(userLabel(user))}</span></div></div><div class="setting-row"><div><strong>Local disk</strong><span>Files are stored in this browser and are not uploaded to Supabase.</span></div><button class="tool-btn" data-action="save">Save now</button></div><div class="setting-row"><div><strong>Reset local disk</strong><span>Deletes the current OWDOS filesystem in this browser and recreates it.</span></div><button class="tool-btn danger" data-action="reset">Reset</button></div></div><div class="settings-section"><div class="setting-row"><div><strong>OWDOS</strong><span>Ordbit Web Distro Operating System</span></div><span>Foundation build</span></div></div>`;
+  settings.innerHTML = `
+    <div class="settings-hero"><div><div class="eyebrow">SYSTEM SETTINGS</div><h2>OWDOS</h2><div class="muted">Ordbit Web Distro Operating System</div></div><div class="system-pill">Kernel ${state.kernel?.version || '—'}</div></div>
+    <div class="settings-section"><div class="setting-row"><div><strong>Account</strong><span>${escapeHtml(user.email || '')}</span></div><button class="tool-btn" data-action="logout">Sign out</button></div><div class="setting-row"><div><strong>Username</strong><span>${escapeHtml(userLabel(user))}</span></div></div></div>
+    <div class="settings-section"><div class="section-title">System</div><div class="setting-row"><div><strong>Hostname</strong><span>${escapeHtml(state.system.hostname)}</span></div><button class="tool-btn" data-action="hostname">Change</button></div><div class="setting-row"><div><strong>Appearance</strong><span>Choose the desktop finish used by OWDOS.</span></div><select class="tool-select" id="theme-select"><option value="default">Midnight</option><option value="slate">Slate</option><option value="snow">Snow</option></select></div><div class="setting-row"><div><strong>Uptime</strong><span>${formatUptime(state.kernel?.uptime() || 0)}</span></div></div><div class="setting-row"><div><strong>Processes</strong><span>${state.kernel?.processes.size || 0} running</span></div><button class="tool-btn" data-action="monitor">Open monitor</button></div></div>
+    <div class="settings-section"><div class="section-title">Maintenance</div><div class="setting-row"><div><strong>Save local disk</strong><span>Your files stay in this browser.</span></div><button class="tool-btn" data-action="save">Save now</button></div><div class="setting-row"><div><strong>Recovery mode</strong><span>Restart into the OWDOS recovery environment.</span></div><button class="tool-btn" data-action="recovery">Restart</button></div><div class="setting-row"><div><strong>Bootloader</strong><span>Restart to the firmware-style boot menu.</span></div><button class="tool-btn" data-action="bootloader">Restart</button></div><div class="setting-row"><div><strong>Powerwash</strong><span>Erase this account’s local OWDOS disk and settings. The Supabase account stays intact.</span></div><button class="tool-btn danger" data-action="powerwash">Powerwash</button></div></div>
+    <div class="settings-section system-facts"><div><span>Build</span><strong>OWDOS 1.0 Foundation</strong></div><div><span>Boot ID</span><strong>${escapeHtml(state.kernel?.bootId || 'unknown')}</strong></div><div><span>Storage</span><strong>IndexedDB / local browser storage</strong></div></div>`;
   root.append(settings);
+  const theme = settings.querySelector('#theme-select');
+  theme.value = state.system.theme || 'default';
+  theme.onchange = () => { state.system.theme = theme.value; document.documentElement.dataset.theme = theme.value; saveSystemState(); toast('Appearance updated.'); };
   settings.addEventListener('click', async event => {
     const action = event.target.dataset.action;
     if (action === 'logout') await supabase.auth.signOut();
-    if (action === 'save') { saveDisk(); toast('Local disk saved.'); }
-    if (action === 'reset') { if (confirm('Reset the local OWDOS filesystem?')) { state.disk = defaultDisk(usernameFor(state.user)); saveDisk(); toast('Local disk reset.'); } }
+    if (action === 'save') { saveDisk(); saveSystemState(); toast('System state saved.'); }
+    if (action === 'hostname') { const next = prompt('Hostname', state.system.hostname); if (next && /^[A-Za-z0-9-]{1,32}$/.test(next)) { state.system.hostname = next.toLowerCase(); saveSystemState(); toast(`Hostname set to ${state.system.hostname}.`); } }
+    if (action === 'monitor') launch('monitor');
+    if (action === 'recovery') rebootInto('recovery');
+    if (action === 'bootloader') rebootInto('bootloader');
+    if (action === 'powerwash') powerwash();
   });
-  openWindow('settings', 'Settings', root, { width: 610, height: 470 });
+  openWindow('settings', 'Settings', root, { width: 720, height: 580 });
+}
+
+function findWindowByApp(app) {
+  return [...state.windows.values()].find(item => item.app === app);
 }
 
 function escapeHtml(value) {
@@ -875,11 +938,242 @@ function launch(app) {
   else if (app === 'browser') createBrowserApp();
   else if (app === 'store') createStoreApp();
   else if (app === 'settings') createSettingsApp();
+  else if (app === 'monitor') createMonitorApp();
+}
+
+function createMonitorApp() {
+  const root = appRoot();
+  const monitor = document.createElement('div'); monitor.className = 'monitor';
+  root.append(monitor);
+  openWindow('monitor', 'System Monitor', root, { width: 700, height: 470 });
+  const render = () => {
+    const processes = state.kernel?.snapshot() || [];
+    monitor.innerHTML = `<div class="monitor-head"><div><div class="eyebrow">OWDOS KERNEL</div><h2>System Monitor</h2><div class="muted">${processes.length} processes · uptime ${formatUptime(state.kernel?.uptime() || 0)}</div></div><button class="tool-btn" data-refresh>Refresh</button></div><div class="process-list"></div><div class="kernel-log"><div class="section-title">Kernel log</div><pre></pre></div>`;
+    const list = monitor.querySelector('.process-list');
+    processes.forEach(proc => {
+      const row = document.createElement('div'); row.className = 'process-row';
+      row.innerHTML = `<span>${proc.pid}</span><strong>${escapeHtml(proc.name)}</strong><span>${escapeHtml(proc.type)}</span><span>${formatUptime(Date.now() - proc.startedAt)}</span>`;
+      list.append(row);
+    });
+    monitor.querySelector('pre').textContent = (state.kernel?.logs || []).slice(-18).map(item => `[${item.level}] ${item.message}`).join('\n');
+    monitor.querySelector('[data-refresh]').onclick = render;
+  };
+  render();
+}
+
+function showOobe() {
+  if (state.oobe) state.oobe.remove();
+  const overlay = document.createElement('div');
+  overlay.className = 'oobe';
+  overlay.innerHTML = `<section class="oobe-card"><div class="oobe-brand"><div class="boot-mark">OW</div><div><div class="eyebrow">ORDBIT WEB DISTRO</div><h1>Welcome to OWDOS</h1></div></div><div class="oobe-progress"><span class="active"></span><span></span><span></span><span></span></div><div class="oobe-body"></div><div class="oobe-actions"><button class="tool-btn" data-back>Back</button><button class="primary oobe-next" data-next>Continue</button></div></section>`;
+  document.body.append(overlay);
+  state.oobe = overlay;
+  let step = 0;
+  const body = overlay.querySelector('.oobe-body');
+  const next = overlay.querySelector('[data-next]');
+  const back = overlay.querySelector('[data-back]');
+  const render = () => {
+    const dots = overlay.querySelectorAll('.oobe-progress span'); dots.forEach((dot, i) => dot.classList.toggle('active', i <= step));
+    back.disabled = step === 0;
+    if (step === 0) {
+      body.innerHTML = `<div class="oobe-kicker">A browser that boots like a computer.</div><h2>Your machine is ready.</h2><p>OWDOS gives this browser a desktop, a persistent local disk, a real Bash environment, a web browser, and a community app store.</p><div class="oobe-grid"><div><strong>Local by default</strong><span>Your OS files stay in this browser.</span></div><div><strong>Account ready</strong><span>${escapeHtml(userLabel(state.user))} is signed in through Supabase.</span></div><div><strong>Built to hack</strong><span>Apps can be submitted through GitHub pull requests.</span></div></div>`;
+      next.textContent = 'Set up OWDOS';
+    } else if (step === 1) {
+      body.innerHTML = `<div class="oobe-kicker">IDENTITY</div><h2>Choose your machine name</h2><p>This is the hostname shown by the shell and system tools.</p><label class="oobe-field">Hostname<input id="oobe-host" maxlength="32" value="${escapeHtml(state.system.hostname)}"></label><div class="oobe-account"><span>Signed in as</span><strong>${escapeHtml(state.user.email || '')}</strong></div>`;
+      next.textContent = 'Continue';
+    } else if (step === 2) {
+      body.innerHTML = `<div class="oobe-kicker">APPEARANCE</div><h2>Pick a desktop finish</h2><p>This can be changed later in Settings.</p><div class="theme-picks"><button data-theme="default" class="theme-pick"><b>Midnight</b><span>Dark · subtle blue</span></button><button data-theme="slate" class="theme-pick"><b>Slate</b><span>Dark · neutral</span></button><button data-theme="snow" class="theme-pick"><b>Snow</b><span>Light · clean</span></button></div>`;
+      overlay.querySelectorAll('[data-theme]').forEach(button => button.classList.toggle('selected', button.dataset.theme === state.system.theme));
+      overlay.querySelectorAll('[data-theme]').forEach(button => button.onclick = () => { state.system.theme = button.dataset.theme; document.documentElement.dataset.theme = state.system.theme; overlay.querySelectorAll('[data-theme]').forEach(item => item.classList.toggle('selected', item === button)); });
+      next.textContent = 'Finish setup';
+    } else {
+      body.innerHTML = `<div class="oobe-finished"><div class="oobe-check">✓</div><div class="oobe-kicker">READY</div><h2>OWDOS is yours.</h2><p>The kernel is mounted, the local filesystem is ready, and your account is connected. The rest of the system can grow from here without rebuilding the foundation.</p></div>`;
+      next.textContent = 'Enter OWDOS';
+    }
+  };
+  next.onclick = () => {
+    if (step === 1) {
+      const value = overlay.querySelector('#oobe-host').value.trim();
+      if (!/^[A-Za-z0-9-]{1,32}$/.test(value)) return toast('Hostname must use letters, numbers, or hyphens.');
+      state.system.hostname = value.toLowerCase();
+    }
+    if (step < 3) step++; else {
+      state.system.oobeComplete = true;
+      saveSystemState();
+      overlay.remove(); state.oobe = null;
+      showDesktop();
+      launch('files');
+      kernelLog('OOBE complete');
+    }
+    render();
+  };
+  back.onclick = () => { if (step > 0) { step--; render(); } };
+  render();
+}
+
+function showRecoveryMode() {
+  state.bootMode = 'recovery';
+  boot.classList.remove('hidden'); auth.classList.add('hidden'); desktop.classList.add('hidden');
+  const card = boot.querySelector('.boot-card');
+  card.innerHTML = `<div class="boot-mark">OW</div><div class="boot-name">OWDOS Recovery</div><div class="boot-subtitle">System recovery environment</div><div class="recovery-menu"><button data-recovery="continue">Continue boot</button><button data-recovery="repair">Repair local filesystem</button><button data-recovery="settings">Reset OWDOS settings</button><button data-recovery="powerwash" class="danger-btn">Powerwash account</button><button data-recovery="bootloader">Back to bootloader</button><button data-recovery="shutdown">Power off</button></div><div id="recovery-status" class="boot-status-line"></div>`;
+  card.querySelectorAll('[data-recovery]').forEach(button => button.onclick = () => recoveryAction(button.dataset.recovery));
+}
+
+function recoveryAction(action) {
+  const status = $('recovery-status');
+  if (action === 'continue') {
+    history.replaceState(null, '', location.pathname);
+    boot.classList.add('hidden');
+    if (state.user) bootIntoSession({ user: state.user }); else { auth.classList.remove('hidden'); setAuthMode('signin'); }
+    return;
+  }
+  if (action === 'repair') {
+    if (!state.user) return status.textContent = 'Sign in first to repair a user disk.';
+    const username = usernameFor(state.user);
+    const required = [`/home/${username}`, `/home/${username}/Desktop`, `/home/${username}/Documents`, `/home/${username}/Downloads`, `/home/${username}/Pictures`, `/home/${username}/Music`, `/home/${username}/.config`];
+    state.disk['/'] ||= { type:'dir', name:'/', updatedAt:Date.now() };
+    state.disk['/home'] ||= { type:'dir', name:'home', updatedAt:Date.now() };
+    required.forEach(path => ensureDir(path));
+    state.disk[`/home/${username}/etc`] ||= { type:'dir', name:'etc', updatedAt:Date.now() };
+    saveDisk();
+    status.textContent = 'Filesystem repair completed. Missing directories were recreated.';
+    kernelLog('filesystem repair completed');
+  }
+  if (action === 'settings') {
+    if (!state.user) return status.textContent = 'Sign in first to reset settings.';
+    state.system = { oobeComplete: false, hostname: 'owdos', theme: 'default' };
+    saveSystemState();
+    document.documentElement.dataset.theme = 'default';
+    status.textContent = 'OWDOS settings reset. The next boot will run OOBE.';
+  }
+  if (action === 'powerwash') powerwash();
+  if (action === 'bootloader') showBootloader();
+  if (action === 'shutdown') shutdownSystem();
+}
+
+function powerwash() {
+  if (!state.user) {
+    const status = $('recovery-status');
+    if (status) status.textContent = 'No signed-in account to powerwash.';
+    return;
+  }
+  if (!confirm(`Powerwash ${userLabel(state.user)}? This deletes local OWDOS files, installed apps, and system settings for this account. Your Supabase account and email stay untouched.`)) return;
+  const prefix = `owdos:${state.user.id}`;
+  const disk = userStorageKey('disk');
+  const installed = userStorageKey('installed');
+  const system = userStorageKey('system');
+  const keys = Object.keys(localStorage).filter(key => key === disk || key === installed || key === system || key.startsWith(`${prefix}:app:`));
+  keys.forEach(key => localStorage.removeItem(key));
+  state.disk = defaultDisk(usernameFor(state.user));
+  state.installed = [];
+  state.system = { oobeComplete: false, hostname: 'owdos', theme: 'default' };
+  state.windows.forEach(item => item.win.remove());
+  state.windows.clear();
+  supabase.auth.signOut();
+}
+
+function rebootInto(mode) {
+  saveDisk(); saveSystemState();
+  location.assign(`${location.pathname}?owdos=${encodeURIComponent(mode)}`);
+}
+
+function shutdownSystem() {
+  saveDisk(); saveSystemState();
+  state.windows.forEach(item => item.win.remove());
+  state.windows.clear();
+  desktop.classList.add('hidden');
+  auth.classList.add('hidden');
+  boot.classList.remove('hidden');
+  const card = boot.querySelector('.boot-card');
+  card.innerHTML = `<div class="boot-mark">OW</div><div class="boot-name">OWDOS</div><div class="boot-subtitle">System powered off</div><button class="primary shutdown-restart" type="button">Restart OWDOS</button>`;
+  card.querySelector('button').onclick = () => location.assign(location.pathname);
+}
+
+function showBootloader() {
+  state.bootMode = 'bootloader';
+  boot.classList.remove('hidden'); auth.classList.add('hidden'); desktop.classList.add('hidden');
+  const card = boot.querySelector('.boot-card');
+  card.innerHTML = `<div class="boot-mark">OW</div><div class="boot-name">OWDOS Bootloader</div><div class="boot-subtitle">Ordbit firmware</div><div class="boot-device">OWDOS / boot</div><div class="recovery-menu"><button data-boot="continue">Boot OWDOS</button><button data-boot="recovery">Recovery mode</button><button data-boot="shutdown">Power off</button></div><div class="boot-hint">Arrow keys select · Enter boots · R opens recovery · P powers off</div>`;
+  const buttons = [...card.querySelectorAll('[data-boot]')];
+  let selected = 0;
+  const select = value => { selected = (value + buttons.length) % buttons.length; buttons.forEach((button, i) => button.classList.toggle('selected', i === selected)); };
+  select(0);
+  const keydown = event => {
+    if (boot.classList.contains('hidden')) return window.removeEventListener('keydown', keydown);
+    if (event.key === 'ArrowDown') { event.preventDefault(); select(selected + 1); }
+    if (event.key === 'ArrowUp') { event.preventDefault(); select(selected - 1); }
+    if (event.key.toLowerCase() === 'r') buttons[1]?.click();
+    if (event.key.toLowerCase() === 'p') buttons[2]?.click();
+    if (event.key === 'Enter') buttons[selected]?.click();
+  };
+  window.addEventListener('keydown', keydown);
+  buttons.forEach((button, i) => button.onclick = () => {
+    if (button.dataset.boot === 'continue') {
+      history.replaceState(null, '', location.pathname);
+      window.removeEventListener('keydown', keydown);
+      runBootSequence();
+    } else if (button.dataset.boot === 'recovery') { window.removeEventListener('keydown', keydown); showRecoveryMode(); }
+    else shutdownSystem();
+  });
+}
+
+function showRecoveryPrompt() {
+  const overlay = document.createElement('div');
+  overlay.className = 'recovery-overlay';
+  overlay.innerHTML = `<section class="recovery-card"><div class="eyebrow">ACCOUNT RECOVERY</div><h2>Set a new password</h2><p class="muted">Your recovery link is valid. Choose a new password for your Supabase account.</p><label>New password<input id="recovery-password" type="password" minlength="6" autocomplete="new-password"></label><label>Confirm password<input id="recovery-password-2" type="password" minlength="6" autocomplete="new-password"></label><div class="oobe-actions"><button class="tool-btn" data-cancel>Cancel</button><button class="primary" data-save>Update password</button></div><div class="message" data-message></div></section>`;
+  document.body.append(overlay);
+  overlay.querySelector('[data-cancel]').onclick = () => overlay.remove();
+  overlay.querySelector('[data-save]').onclick = async () => {
+    const first = overlay.querySelector('#recovery-password').value;
+    const second = overlay.querySelector('#recovery-password-2').value;
+    const message = overlay.querySelector('[data-message]');
+    if (first.length < 6 || first !== second) { message.textContent = 'Use at least 6 characters and make both passwords match.'; message.className = 'message error'; return; }
+    const { error } = await supabase.auth.updateUser({ password: first });
+    if (error) { message.textContent = error.message; message.className = 'message error'; return; }
+    overlay.remove();
+    toast('Password updated.');
+  };
+}
+
+async function runBootSequence() {
+  state.bootMode = 'booting';
+  boot.classList.remove('hidden'); auth.classList.add('hidden'); desktop.classList.add('hidden');
+  const card = boot.querySelector('.boot-card');
+  card.innerHTML = `<div class="boot-mark">OW</div><div class="boot-name">OWDOS</div><div id="boot-status">Starting kernel...</div><div id="boot-log" class="boot-log"></div><div class="boot-bar"><span></span></div><button id="bootloader-trigger" class="boot-trigger">Bootloader</button>`;
+  const log = $('boot-log');
+  const status = $('boot-status');
+  const steps = [
+    ['boot ROM', 'Verifying boot image'],
+    ['bootloader', 'Loading OWDOS bootloader'],
+    ['kernel', 'Starting Ordbit kernel'],
+    ['filesystem', 'Mounting local disk'],
+    ['services', 'Starting system services'],
+    ['session', 'Loading account session']
+  ];
+  for (const [name, message] of steps) {
+    if (state.bootMode !== 'booting') return;
+    status.textContent = message;
+    const line = document.createElement('div'); line.textContent = `${name.padEnd(11, ' ')}  OK`; log.append(line); log.scrollTop = log.scrollHeight;
+    await new Promise(resolve => setTimeout(resolve, 115));
+  }
+  $('bootloader-trigger').onclick = showBootloader;
+  if (state.bootMode !== 'booting') return;
+  const mode = new URLSearchParams(location.search).get('owdos');
+  const { data } = await supabase.auth.getSession();
+  if (data.session) {
+    state.user = data.session.user;
+    if (mode === 'recovery') await loadLocalState();
+  }
+  if (mode === 'bootloader') return showBootloader();
+  if (mode === 'recovery') return showRecoveryMode();
+  if (data.session) await bootIntoSession(data.session); else { boot.classList.add('hidden'); auth.classList.remove('hidden'); setAuthMode('signin'); }
 }
 
 function showDesktop() {
   auth.classList.add('hidden');
+  boot.classList.add('hidden');
   desktop.classList.remove('hidden');
+  document.documentElement.dataset.theme = state.system.theme || 'default';
   $('status-user').textContent = userLabel(state.user);
   $('launcher-user').textContent = userLabel(state.user);
   updateClock();
@@ -892,6 +1186,12 @@ function updateClock() {
 async function bootIntoSession(session) {
   state.user = session.user;
   await loadLocalState();
+  if (window.owdos) window.owdos.fs = state.disk;
+  kernelLog(`session ready for ${userLabel(state.user)}`);
+  if (!state.system.oobeComplete) {
+    showOobe();
+    return;
+  }
   showDesktop();
   if (!state.booted) {
     state.booted = true;
@@ -905,34 +1205,28 @@ async function bootApp() {
   $('forgot-password').onclick = forgotPassword;
   $('launcher').onclick = () => launcherMenu.classList.toggle('hidden');
   document.querySelectorAll('.app-launch').forEach(button => button.onclick = () => launch(button.dataset.app));
-  window.addEventListener('beforeunload', saveDisk);
+  $('clock').onclick = () => launch('monitor');
+  window.addEventListener('beforeunload', () => { saveDisk(); saveSystemState(); });
   document.addEventListener('click', event => {
     if (!event.target.closest('#launcher') && !event.target.closest('#launcher-menu')) launcherMenu.classList.add('hidden');
     if (!event.target.closest('#desktop-context')) $('desktop-context').classList.add('hidden');
   });
   setInterval(updateClock, 30000);
-
-  $('boot-status').textContent = 'Loading account session...';
-  const { data } = await supabase.auth.getSession();
-  if (data.session) await bootIntoSession(data.session);
-  else { boot.classList.add('hidden'); auth.classList.remove('hidden'); setAuthMode('signin'); }
-
+  let escapeBoot = false;
+  const bootKey = event => { if (event.key === 'Escape' && !boot.classList.contains('hidden')) { escapeBoot = true; showBootloader(); window.removeEventListener('keydown', bootKey); } };
+  window.addEventListener('keydown', bootKey);
+  $('bootloader-trigger').onclick = showBootloader;
+  await runBootSequence();
+  if (!escapeBoot) window.removeEventListener('keydown', bootKey);
   supabase.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'SIGNED_IN' && session) {
-      boot.classList.add('hidden');
-      await bootIntoSession(session);
-    }
+    if (event === 'SIGNED_IN' && session) await bootIntoSession(session);
     if (event === 'SIGNED_OUT') {
       state.user = null;
       state.windows.forEach(item => item.win.remove());
       state.windows.clear();
-      state.bash = null;
-      state.shell = null;
-      state.booted = false;
-      desktop.classList.add('hidden');
-      auth.classList.remove('hidden');
-      showMessage('Signed out.');
-      setAuthMode('signin');
+      state.bash = null; state.shell = null; state.shellReady = false; state.booted = false;
+      desktop.classList.add('hidden'); boot.classList.add('hidden'); auth.classList.remove('hidden');
+      setAuthMode('signin'); showMessage('Signed out.');
     }
     if (event === 'PASSWORD_RECOVERY') showRecoveryPrompt();
   });
