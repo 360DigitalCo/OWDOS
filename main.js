@@ -36,7 +36,10 @@ const state = {
   mode: 'none',
   oobeAccountChoice: 'user',
   deviceReady: false,
-  system: { oobeComplete: false, hostname: 'owdos', theme: 'default', language: 'English (US)', keyboard: 'US', accessibility: false, reduceMotion: false, diagnostics: false },
+  deviceId: null,
+  devMode: false,
+  deviceManaged: false,
+  system: { oobeComplete: false, hostname: 'owdos', theme: 'default', language: 'English (US)', keyboard: 'US', accessibility: false, reduceMotion: false, diagnostics: false, firmwareVersion: '1.2.0', bootloaderVersion: '0.8.0', kernelVersion: '0.5.0-ow', tpmVersion: '2.0.1-virtual', devMode: false, managed: false, lastGoodSnapshot: null },
   kernel: null
 };
 
@@ -68,12 +71,17 @@ function userStorageKey(name) {
 }
 
 function loadSystemState() {
+  const defaults = { oobeComplete: false, hostname: 'owdos', theme: 'default', language: 'English (US)', keyboard: 'US', accessibility: false, reduceMotion: false, diagnostics: false, firmwareVersion: '1.2.0', bootloaderVersion: '0.8.0', kernelVersion: '0.5.0-ow', tpmVersion: '2.0.1-virtual', devMode: false, managed: false, lastGoodSnapshot: null };
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey('device')) || 'null');
-    state.system = { oobeComplete: false, hostname: 'owdos', theme: 'default', language: 'English (US)', keyboard: 'US', accessibility: false, reduceMotion: false, diagnostics: false, ...(saved || {}) };
+    state.system = { ...defaults, ...(saved || {}) };
   } catch {
-    state.system = { oobeComplete: false, hostname: 'owdos', theme: 'default', language: 'English (US)', keyboard: 'US', accessibility: false, reduceMotion: false, diagnostics: false };
+    state.system = { ...defaults };
   }
+  state.deviceId = localStorage.getItem(storageKey('device-id')) || crypto.randomUUID().toUpperCase();
+  localStorage.setItem(storageKey('device-id'), state.deviceId);
+  state.devMode = !!state.system.devMode;
+  state.deviceManaged = !!state.system.managed;
   document.documentElement.dataset.theme = state.system.theme || 'default';
   document.documentElement.classList.toggle('reduce-motion', !!state.system.reduceMotion);
 }
@@ -103,7 +111,7 @@ function kernelLog(message, level = 'info') {
 
 function createKernel() {
   const kernel = {
-    version: '0.4.0',
+    version: state.system.kernelVersion || '0.5.0-ow',
     pidNext: 2,
     processes: new Map(),
     logs: [],
@@ -138,7 +146,7 @@ function createKernel() {
   kernel.spawn('init', 'kernel');
   kernel.spawn('dbus', 'service');
   kernel.spawn('desktop', 'service');
-  window.owdos = { kernel, fs: state.disk, auth: supabase };
+  window.owdos = { kernel, fs: state.disk, auth: supabase, device: { id: state.deviceId, firmware: state.system.firmwareVersion, bootloader: state.system.bootloaderVersion, kernel: state.system.kernelVersion, tpm: state.system.tpmVersion } };
   return kernel;
 }
 
@@ -1038,12 +1046,121 @@ function showOobe() {
     if (step === 5) { const value = body.querySelector('#oobe-host').value.trim(); if (!/^[A-Za-z0-9-]{1,32}$/.test(value)) return toast('Device name must use letters, numbers, or hyphens.'); state.system.hostname = value.toLowerCase(); }
     if (step === 6) { state.system.diagnostics = false; }
     if (step < 7) { step++; render(); saveSystemState(); return; }
+    saveDeviceSnapshot('post-oobe');
     state.system.oobeComplete = true; saveSystemState(); overlay.remove(); state.oobe = null; kernelLog('OOBE complete');
     if (state.user) showUserPage(); else if (state.oobeAccountChoice === 'guest') enterGuestPage(); else showWelcomePage();
   };
   back.onclick = () => { if (step > 0) { step--; next.disabled = false; render(); } };
   overlay.querySelector('[data-access]').onclick = () => { state.system.accessibility = !state.system.accessibility; document.documentElement.classList.toggle('accessibility-on', state.system.accessibility); toast(state.system.accessibility ? 'Accessibility hints enabled.' : 'Accessibility hints disabled.'); saveSystemState(); };
   render();
+}
+
+
+function saveDeviceSnapshot(label = 'last-good') {
+  try {
+    const snapshot = { label, at: new Date().toISOString(), system: { ...state.system, lastGoodSnapshot: null }, disk: state.disk, installed: [...state.installed] };
+    localStorage.setItem(storageKey('snapshot'), JSON.stringify(snapshot));
+    state.system.lastGoodSnapshot = label;
+    saveSystemState();
+  } catch {}
+}
+
+function loadDeviceSnapshot() {
+  try { return JSON.parse(localStorage.getItem(storageKey('snapshot')) || 'null'); } catch { return null; }
+}
+
+function revertDevice() {
+  const snapshot = loadDeviceSnapshot();
+  if (!snapshot) return toast('No recovery snapshot is available.');
+  if (!confirm(`Revert OWDOS to ${snapshot.label || 'the last good state'}? Current local changes will be discarded.`)) return;
+  state.disk = snapshot.disk || state.disk;
+  state.installed = Array.isArray(snapshot.installed) ? snapshot.installed : state.installed;
+  state.system = { ...state.system, ...(snapshot.system || {}), lastGoodSnapshot: snapshot.label || 'last-good' };
+  saveDisk(); saveSystemState();
+  location.assign(`${location.pathname}?owdos=bootloader`);
+}
+
+function setDevMode(enabled) {
+  saveDeviceSnapshot('before-devmode');
+  state.devMode = !!enabled;
+  state.system.devMode = state.devMode;
+  saveSystemState();
+  kernelLog(`developer mode ${state.devMode ? 'enabled' : 'disabled'}`);
+}
+
+function activateOwdosExploit(id) {
+  const exploits = {
+    sh1ttyoobe: { label: 'sh1ttyoobe', version: '0.1', effect: 'OOBE bypass lab flag enabled.' },
+    bootbreak: { label: 'bootbreak', version: '0.2', effect: 'Bootloader test path enabled.' },
+    tpmglitch: { label: 'tpmglitch', version: '0.1', effect: 'Virtual TPM compatibility mode enabled.' },
+    devunlock: { label: 'devunlock', version: '0.3', effect: 'Developer-mode lab unlock enabled.' }
+  };
+  const exploit = exploits[id];
+  if (!exploit) return;
+  saveDeviceSnapshot(`before-${id}`);
+  state.system.exploitLab = { id, label: exploit.label, version: exploit.version, active: true, at: new Date().toISOString() };
+  if (id === 'sh1ttyoobe') state.system.oobeBypass = true;
+  if (id === 'bootbreak') state.system.bootTest = true;
+  if (id === 'tpmglitch') state.system.tpmVersion = '2.0.1-virtual-glitch';
+  if (id === 'devunlock') setDevMode(true);
+  saveSystemState();
+  toast(`${exploit.label}: ${exploit.effect}`);
+}
+
+function showAdminConsole() {
+  if (!state.devMode) return toast('Enable Developer mode first.');
+  state.bootMode = 'admin';
+  boot.classList.remove('hidden'); auth.classList.add('hidden'); desktop.classList.add('hidden');
+  const card = boot.querySelector('.boot-card');
+  const managedFor = state.system.managedUserId ? 'Provisioned' : 'Not provisioned';
+  card.innerHTML = `<div class="admin-console"><div class="console-top"><div><div class="boot-mark">OW</div><div class="boot-name">OWDOS Admin Console</div><div class="boot-subtitle">Developer firmware services</div></div><div class="admin-badge">${managedFor}</div></div><div class="device-proof"><span>Device ID</span><code>${escapeHtml(state.deviceId)}</code></div><div class="admin-form"><label>Prove device ownership<input id="device-proof-input" autocomplete="off" spellcheck="false" placeholder="Enter the full device ID"></label><button class="primary" data-provision>Provision device</button></div><div class="admin-grid"><button data-admin="devmode">${state.devMode ? 'Disable developer mode' : 'Enable developer mode'}</button><button data-admin="powerwash" class="danger-btn">Powerwash</button><button data-admin="revert">Revert last snapshot</button><button data-admin="safe">Set kernel to stable</button><button data-admin="kernel">Cycle kernel version</button><button data-admin="tpm">Cycle TPM version</button></div><div class="admin-lab"><div class="section-title">OWDOS exploit lab</div><p>These are emulated OWDOS firmware test cases. They change only this local browser OS.</p><div class="exploit-grid"><button data-exploit="sh1ttyoobe"><b>sh1ttyoobe</b><small>OOBE bypass lab · 0.1</small></button><button data-exploit="bootbreak"><b>bootbreak</b><small>Bootloader test · 0.2</small></button><button data-exploit="tpmglitch"><b>tpmglitch</b><small>TPM compatibility · 0.1</small></button><button data-exploit="devunlock"><b>devunlock</b><small>Dev unlock · 0.3</small></button></div></div><div class="admin-footer"><span>Firmware ${state.system.firmwareVersion}</span><span>Bootloader ${state.system.bootloaderVersion}</span><span>Kernel ${state.system.kernelVersion}</span><span>TPM ${state.system.tpmVersion}</span></div><button class="setup-back" data-admin-back>Back to bootloader</button><div id="admin-status" class="boot-status-line"></div></div>`;
+  card.querySelector('[data-provision]').onclick = () => {
+    const value = card.querySelector('#device-proof-input').value.trim().toUpperCase();
+    const status = card.querySelector('#admin-status');
+    if (!value || value !== state.deviceId) { status.textContent = 'Ownership proof failed. The device ID must match exactly.'; return; }
+    state.system.managed = true;
+    state.system.managedUserId = state.user?.id || null;
+    state.deviceManaged = true;
+    saveSystemState();
+    status.textContent = state.user ? `Device provisioned for ${state.user.email}.` : 'Device provisioned locally. Sign in to attach a user account.';
+    card.querySelector('.admin-badge').textContent = 'Provisioned';
+  };
+  card.querySelector('[data-admin-back]').onclick = showBootloader;
+  card.querySelectorAll('[data-exploit]').forEach(button => button.onclick = () => activateOwdosExploit(button.dataset.exploit));
+  card.querySelector('[data-admin="devmode"]').onclick = () => { setDevMode(!state.devMode); showAdminConsole(); };
+  card.querySelector('[data-admin="powerwash"]').onclick = () => powerwashDevice();
+  card.querySelector('[data-admin="revert"]').onclick = revertDevice;
+  card.querySelector('[data-admin="safe"]').onclick = () => { saveDeviceSnapshot('before-stable'); state.system.kernelVersion = '0.5.0-ow'; state.system.tpmVersion = '2.0.1-virtual'; state.system.exploitLab = null; saveSystemState(); showAdminConsole(); };
+  card.querySelector('[data-admin="kernel"]').onclick = () => { const versions = ['0.4.0-legacy','0.5.0-ow','0.6.0-dev']; const i = versions.indexOf(state.system.kernelVersion); saveDeviceSnapshot('before-kernel-change'); state.system.kernelVersion = versions[(i + 1) % versions.length]; saveSystemState(); showAdminConsole(); };
+  card.querySelector('[data-admin="tpm"]').onclick = () => { const versions = ['1.2-compat','2.0.1-virtual','2.0.1-virtual-glitch']; const i = versions.indexOf(state.system.tpmVersion); saveDeviceSnapshot('before-tpm-change'); state.system.tpmVersion = versions[(i + 1) % versions.length]; saveSystemState(); showAdminConsole(); };
+}
+
+function powerwashDevice() {
+  if (!confirm('Powerwash this OWDOS device? This resets device setup, local OS data, developer mode, snapshots, and all local user disks. Your Supabase account is not deleted.')) return;
+  Object.keys(localStorage).filter(key => key.startsWith('owdos:')).forEach(key => localStorage.removeItem(key));
+  sessionStorage.clear();
+  state.disk = {};
+  state.installed = [];
+  state.user = null;
+  state.mode = 'none';
+  state.devMode = false;
+  state.deviceManaged = false;
+  location.assign(location.pathname);
+}
+
+
+function showOobeRecoveryMenu(preselect = 'powerwash') {
+  let overlay = document.querySelector('.oobe-recovery-overlay');
+  if (overlay) { overlay.remove(); return; }
+  overlay = document.createElement('div');
+  overlay.className = 'oobe-recovery-overlay';
+  overlay.innerHTML = `<section class="recovery-card oobe-hotkey-card"><div class="eyebrow">DEVICE RECOVERY</div><h2>Recovery shortcut</h2><p>OWDOS detected the setup recovery chord. Choose what the device should do.</p><div class="oobe-hotkey-grid"><button data-oobe-action="powerwash"><b>Powerwash</b><small>Erase local setup and return to first boot.</small></button><button data-oobe-action="revert"><b>Revert</b><small>Restore the last good local device snapshot.</small></button></div><div class="oobe-actions"><button class="setup-back" data-oobe-cancel>Cancel</button></div></section>`;
+  document.body.append(overlay);
+  overlay.querySelector('[data-oobe-action="powerwash"]').classList.toggle('selected', preselect === 'powerwash');
+  overlay.querySelector('[data-oobe-action="revert"]').classList.toggle('selected', preselect === 'revert');
+  overlay.querySelector('[data-oobe-action="powerwash"]').onclick = powerwashDevice;
+  overlay.querySelector('[data-oobe-action="revert"]').onclick = () => { overlay.remove(); revertDevice(); };
+  overlay.querySelector('[data-oobe-cancel]').onclick = () => overlay.remove();
 }
 
 function showWelcomePage() {
@@ -1097,7 +1214,7 @@ function showRecoveryMode() {
   state.bootMode = 'recovery';
   boot.classList.remove('hidden'); auth.classList.add('hidden'); desktop.classList.add('hidden');
   const card = boot.querySelector('.boot-card');
-  card.innerHTML = `<div class="boot-mark">OW</div><div class="boot-name">OWDOS Recovery</div><div class="boot-subtitle">System recovery environment</div><div class="recovery-menu"><button data-recovery="continue">Continue boot</button><button data-recovery="repair">Repair local filesystem</button><button data-recovery="settings">Reset OWDOS settings</button><button data-recovery="powerwash" class="danger-btn">Powerwash account</button><button data-recovery="bootloader">Back to bootloader</button><button data-recovery="shutdown">Power off</button></div><div id="recovery-status" class="boot-status-line"></div>`;
+  card.innerHTML = `<div class="boot-mark">OW</div><div class="boot-name">OWDOS Recovery</div><div class="boot-subtitle">System recovery environment</div><div class="boot-device">${escapeHtml(state.deviceId)}</div><div class="boot-facts"><span>Kernel ${escapeHtml(state.system.kernelVersion)}</span><span>TPM ${escapeHtml(state.system.tpmVersion)}</span></div><div class="recovery-menu"><button data-recovery="continue">Continue boot</button><button data-recovery="repair">Repair local filesystem</button><button data-recovery="revert">Revert last snapshot</button><button data-recovery="settings">Reset OWDOS settings</button><button data-recovery="devmode">Developer mode</button><button data-recovery="powerwash" class="danger-btn">Powerwash account</button><button data-recovery="device-powerwash" class="danger-btn">Powerwash device</button><button data-recovery="bootloader">Back to bootloader</button><button data-recovery="shutdown">Power off</button></div><div id="recovery-status" class="boot-status-line"></div>`;
   card.querySelectorAll('[data-recovery]').forEach(button => button.onclick = () => recoveryAction(button.dataset.recovery));
 }
 
@@ -1129,6 +1246,9 @@ function recoveryAction(action) {
     status.textContent = 'OWDOS settings reset. The next boot will run OOBE.';
   }
   if (action === 'powerwash') powerwash();
+  if (action === 'device-powerwash') powerwashDevice();
+  if (action === 'revert') revertDevice();
+  if (action === 'devmode') { setDevMode(true); showDevMode(); }
   if (action === 'bootloader') showBootloader();
   if (action === 'shutdown') shutdownSystem();
 }
@@ -1139,6 +1259,7 @@ function powerwash() {
     if (status) status.textContent = 'No signed-in account to powerwash.';
     return;
   }
+  saveDeviceSnapshot('before-user-powerwash');
   if (!confirm(`Powerwash ${userLabel(state.user)}? This deletes local OWDOS files, installed apps, and system settings for this account. Your Supabase account and email stay untouched.`)) return;
   const prefix = `owdos:${state.user.id}`;
   const disk = userStorageKey('disk');
@@ -1172,11 +1293,25 @@ function shutdownSystem() {
   card.querySelector('button').onclick = () => location.assign(location.pathname);
 }
 
+
+function showDevMode() {
+  state.bootMode = 'devmode';
+  boot.classList.remove('hidden'); auth.classList.add('hidden'); desktop.classList.add('hidden');
+  const card = boot.querySelector('.boot-card');
+  card.innerHTML = `<div class="devmode-page"><div class="devmode-top"><div><div class="boot-mark">OW</div><div class="boot-name">OWDOS Developer Mode</div><div class="boot-subtitle">Unverified firmware environment</div></div><span class="devmode-pill">${state.devMode ? 'ENABLED' : 'DISABLED'}</span></div><div class="devmode-warning">Developer mode disables the normal trust chain for this local OWDOS instance. This is a simulated browser OS feature.</div><div class="devmode-actions"><button class="primary" data-dev="admin">Open admin console</button><button data-dev="recovery">Recovery</button><button data-dev="revert">Revert</button><button data-dev="powerwash" class="danger-btn">Powerwash</button><button data-dev="toggle">${state.devMode ? 'Disable developer mode' : 'Enable developer mode'}</button></div><div class="devmode-facts"><div><span>Device</span><code>${escapeHtml(state.deviceId)}</code></div><div><span>Kernel</span><b>${escapeHtml(state.system.kernelVersion)}</b></div><div><span>TPM</span><b>${escapeHtml(state.system.tpmVersion)}</b></div><div><span>Exploit lab</span><b>${state.system.exploitLab?.label || 'None active'}</b></div></div><button class="setup-back" data-dev="back">Back to bootloader</button></div>`;
+  card.querySelector('[data-dev="admin"]').onclick = showAdminConsole;
+  card.querySelector('[data-dev="recovery"]').onclick = showRecoveryMode;
+  card.querySelector('[data-dev="revert"]').onclick = revertDevice;
+  card.querySelector('[data-dev="powerwash"]').onclick = powerwashDevice;
+  card.querySelector('[data-dev="toggle"]').onclick = () => { setDevMode(!state.devMode); showDevMode(); };
+  card.querySelector('[data-dev="back"]').onclick = showBootloader;
+}
+
 function showBootloader() {
   state.bootMode = 'bootloader';
   boot.classList.remove('hidden'); auth.classList.add('hidden'); desktop.classList.add('hidden');
   const card = boot.querySelector('.boot-card');
-  card.innerHTML = `<div class="boot-mark">OW</div><div class="boot-name">OWDOS Bootloader</div><div class="boot-subtitle">Ordbit firmware</div><div class="boot-device">OWDOS / boot</div><div class="recovery-menu"><button data-boot="continue">Boot OWDOS</button><button data-boot="recovery">Recovery mode</button><button data-boot="shutdown">Power off</button></div><div class="boot-hint">Arrow keys select · Enter boots · R opens recovery · P powers off</div>`;
+  card.innerHTML = `<div class="boot-mark">OW</div><div class="boot-name">OWDOS Bootloader</div><div class="boot-subtitle">Ordbit firmware</div><div class="boot-device">${escapeHtml(state.system.hostname)} · ${escapeHtml(state.deviceId)}</div><div class="boot-facts"><span>FW ${escapeHtml(state.system.firmwareVersion)}</span><span>BL ${escapeHtml(state.system.bootloaderVersion)}</span><span>Kernel ${escapeHtml(state.system.kernelVersion)}</span><span>TPM ${escapeHtml(state.system.tpmVersion)}</span></div><div class="recovery-menu"><button data-boot="continue">Boot OWDOS</button><button data-boot="recovery">Recovery mode</button><button data-boot="devmode">Developer mode</button><button data-boot="admin">Admin console</button><button data-boot="shutdown">Power off</button></div><div class="boot-hint">Arrow keys select · Enter boots · R recovery · D developer mode · A admin · P power off</div>`;
   const buttons = [...card.querySelectorAll('[data-boot]')];
   let selected = 0;
   const select = value => { selected = (value + buttons.length) % buttons.length; buttons.forEach((button, i) => button.classList.toggle('selected', i === selected)); };
@@ -1185,8 +1320,10 @@ function showBootloader() {
     if (boot.classList.contains('hidden')) return window.removeEventListener('keydown', keydown);
     if (event.key === 'ArrowDown') { event.preventDefault(); select(selected + 1); }
     if (event.key === 'ArrowUp') { event.preventDefault(); select(selected - 1); }
-    if (event.key.toLowerCase() === 'r') buttons[1]?.click();
-    if (event.key.toLowerCase() === 'p') buttons[2]?.click();
+    if (event.key.toLowerCase() === 'r') buttons.find(button => button.dataset.boot === 'recovery')?.click();
+    if (event.key.toLowerCase() === 'd') buttons.find(button => button.dataset.boot === 'devmode')?.click();
+    if (event.key.toLowerCase() === 'a') buttons.find(button => button.dataset.boot === 'admin')?.click();
+    if (event.key.toLowerCase() === 'p') buttons.find(button => button.dataset.boot === 'shutdown')?.click();
     if (event.key === 'Enter') buttons[selected]?.click();
   };
   window.addEventListener('keydown', keydown);
@@ -1196,6 +1333,8 @@ function showBootloader() {
       window.removeEventListener('keydown', keydown);
       runBootSequence();
     } else if (button.dataset.boot === 'recovery') { window.removeEventListener('keydown', keydown); showRecoveryMode(); }
+    else if (button.dataset.boot === 'devmode') { window.removeEventListener('keydown', keydown); if (!state.devMode) setDevMode(true); showDevMode(); }
+    else if (button.dataset.boot === 'admin') { window.removeEventListener('keydown', keydown); showAdminConsole(); }
     else shutdownSystem();
   });
 }
@@ -1252,6 +1391,7 @@ async function runBootSequence() {
   if (data.session) { state.user = data.session.user; state.mode = 'user'; }
   if (mode === 'bootloader') return showBootloader();
   if (mode === 'recovery') return showRecoveryMode();
+  if (state.system.oobeBypass) { state.system.oobeComplete = true; saveSystemState(); }
   if (!state.system.oobeComplete) return showOobe();
   if (data.session) return showUserPage();
   showWelcomePage();
@@ -1299,11 +1439,28 @@ async function bootApp() {
     if (!event.target.closest('#desktop-context')) $('desktop-context').classList.add('hidden');
   });
   setInterval(updateClock, 30000);
+  const heldKeys = new Set();
+  const heldCodes = new Set();
+  let oobePowerwashPress = 0;
+  let oobePowerwashTimer = null;
   const bootKey = event => {
-    if (!boot.classList.contains('hidden') && (event.key === 'F12' || event.key === 'Escape')) { event.preventDefault(); showBootloader(); }
-    if (!boot.classList.contains('hidden') && event.key.toLowerCase() === 'r') showRecoveryMode();
+    heldKeys.add(event.key);
+    heldCodes.add(event.code);
+    if (['Digit1','Digit4','Equal'].every(code => heldCodes.has(code))) { event.preventDefault(); heldKeys.clear(); heldCodes.clear(); showRecoveryMode(); return; }
+    const target = event.target;
+    const inOobe = !!document.querySelector('.oobe');
+    if (inOobe && event.ctrlKey && event.altKey && event.shiftKey && event.key.toLowerCase() === 'r') {
+      event.preventDefault();
+      oobePowerwashPress += 1;
+      clearTimeout(oobePowerwashTimer);
+      oobePowerwashTimer = setTimeout(() => { oobePowerwashPress = 0; }, 700);
+      if (oobePowerwashPress === 1) showOobeRecoveryMenu();
+      if (oobePowerwashPress >= 2) { oobePowerwashPress = 0; showOobeRecoveryMenu('revert'); }
+    }
+    if ((event.key === 'F12' || event.key === 'Escape') && (boot.classList.contains('hidden') || !document.querySelector('.oobe'))) { event.preventDefault(); showBootloader(); }
   };
   window.addEventListener('keydown', bootKey);
+  window.addEventListener('keyup', event => { heldKeys.delete(event.key); heldCodes.delete(event.code); });
   await runBootSequence();
   supabase.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_IN' && session) { state.mode = 'user'; await bootIntoSession(session); }

@@ -1,5 +1,5 @@
 (() => {
-  const OWDOS_SW_VERSION = '3';
+  const OWDOS_SW_VERSION = '6';
   const isolated = {
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Embedder-Policy": "require-corp"
@@ -30,10 +30,8 @@
 
   if (typeof window !== "undefined" && window.crossOriginIsolated) return;
   if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./coi-serviceworker.js", { scope: "./" }).then(() => {
-  const OWDOS_SW_VERSION = '3';
+    navigator.serviceWorker.register("./coi-serviceworker.js?v=6", { scope: "./" }).then(() => {
       if (!navigator.serviceWorker.controller) window.location.reload();
-    }).catch(() => {
-  const OWDOS_SW_VERSION = '3';});
+    }).catch(() => {});
   }
 })();

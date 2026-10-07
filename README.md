@@ -57,3 +57,14 @@ Recovery mode can repair missing local filesystem directories, reset OWDOS setti
 ## Development
 
 The code intentionally stays compact. The core system currently lives in `index.html`, `style.css` and `main.js`, with only the runtime support files around them.
+
+
+## Firmware, recovery, and developer mode
+
+OWDOS exposes a local firmware layer with a persistent device ID, firmware and bootloader versions, kernel versions, and a virtual TPM version.
+
+Recovery is always available with the `1` + `4` + `=` chord. During OOBE, `Ctrl` + `Alt` + `Shift` + `R` opens the recovery actions; pressing `R` twice quickly selects the revert path.
+
+Developer mode is available from the bootloader. The developer environment includes an ownership-protected Admin Console that requires the exact device ID before provisioning the local device. The exploit lab contains emulated OWDOS-only firmware test cases such as `sh1ttyoobe`, `bootbreak`, `tpmglitch`, and `devunlock`. They change the simulated OWDOS state only and are not real-world exploit code.
+
+Powerwash resets local device and user state without deleting the Supabase account. Revert restores the last local recovery snapshot.
