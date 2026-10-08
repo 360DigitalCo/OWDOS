@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OWDOS Bootloader</title><link rel="stylesheet" href="system.css"><link rel="icon" href="favicon.svg"></head>
+<body>
+<div class="bootloader"><header><div><div class="firmware-word">OWDOS</div><div class="firmware-sub">Ordbit firmware</div></div><div class="firmware-device" id="facts"></div></header><main><div class="boot-title">Select boot target</div><div class="boot-sub">Arrow keys and Enter select. Recovery is always available with 1 + 4 + =.</div><div class="boot-menu" id="menu">
+<button data-go="boot">Boot OWDOS<span>Verified system image</span></button>
+<button data-go="recovery">Recovery mode<span>Repair, revert or Powerwash</span></button>
+<button data-go="devmode">Developer mode<span>Unsigned OWDOS development environment</span></button>
+<button data-go="admin">Admin console<span>Provision this device by ID</span></button>
+<button data-go="poweroff">Power off<span>Stop firmware</span></button>
+</div></main><footer>F12 bootloader · 1 + 4 + = recovery · Build <span id="build"></span></footer></div>
+<script type="module">
+import {loadDevice,getDeviceId,redirect,saveDevice,confirmAction} from './page.js';
+const d=loadDevice(), facts=document.querySelector('#facts');
+facts.textContent=`${d.hostname} · ${getDeviceId()}`;
+document.querySelector('#build').textContent=`FW ${d.firmwareVersion} · BL ${d.bootloaderVersion} · K ${d.kernelVersion} · TPM ${d.tpmVersion}`;
+const buttons=[...document.querySelectorAll('#menu button')];let selected=0;
+function mark(){buttons.forEach((b,i)=>b.classList.toggle('selected',i===selected))}
+function go(kind){if(kind==='boot')location.replace('index.html');if(kind==='recovery')location.replace('recovery.html');if(kind==='devmode')location.replace('devmode.html');if(kind==='admin')location.replace('admin.html');if(kind==='poweroff')document.body.innerHTML='<div class="powered-off">OWDOS is powered off.<br><span>Press R to restart.</span></div>'}
+buttons.forEach(b=>b.onclick=()=>go(b.dataset.go));mark();
+window.addEventListener('keydown',e=>{if(e.key==='ArrowDown'){selected=(selected+1)%buttons.length;mark()}if(e.key==='ArrowUp'){selected=(selected-1+buttons.length)%buttons.length;mark()}if(e.key==='Enter')go(buttons[selected].dataset.go);if(e.key.toLowerCase()==='r')go('recovery');if(e.key.toLowerCase()==='d')go('devmode');if(e.key.toLowerCase()==='a')go('admin')});
+const held=new Set();window.addEventListener('keydown',e=>{held.add(e.code);if(['Digit1','Digit4','Equal'].every(k=>held.has(k))){held.clear();go('recovery')}});window.addEventListener('keyup',e=>held.delete(e.code));
+</script>
+</body></html>

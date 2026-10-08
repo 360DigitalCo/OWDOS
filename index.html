@@ -1,1 +1,17 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050608"><title>OWDOS Bootloader</title><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23f2f4f7'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-family='Arial' font-size='26' font-weight='700' fill='%23080b0e'%3EOW%3C/text%3E%3C/svg%3E"><link rel="stylesheet" href="system.css"></head><body data-page="boot"><main class="boot-screen"><section class="boot-card"><div class="boot-header"><div><div class="boot-logo">OW</div><div class="boot-title">OWDOS Bootloader</div><div class="boot-sub">Ordbit firmware · verified browser device</div></div><div class="boot-sub" id="boot-status">READY</div></div><div class="boot-menu" id="boot-menu"></div><div class="boot-meta" id="boot-meta"></div><div class="boot-hint">↑ ↓ select · Enter choose · R recovery · D developer mode · A admin · P power off</div></section></main><script type="module" src="boot.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OWDOS</title><link rel="stylesheet" href="system.css"><link rel="icon" href="favicon.svg"></head>
+<body>
+<div class="firmware-page"><div class="firmware-mark">OW</div><div class="firmware-name">OWDOS</div><div class="firmware-sub">Ordbit Web Distro Operating System</div><div class="firmware-lines" id="lines"></div><div class="firmware-bar"><span id="bar"></span></div><button id="skip">Boot options · F12</button></div>
+<script type="module">
+import {loadDevice,saveDevice,redirect,currentSession} from './page.js';
+const d=loadDevice(), lines=document.querySelector('#lines'), bar=document.querySelector('#bar');
+const qs=new URLSearchParams(location.search);
+if(qs.get('loader')==='1'){location.replace('bootloader.html');}
+const steps=[['ROM','Checking firmware'],['BL1','Loading Ordbit bootloader'],['KERNEL','Verifying kernel'],['TPM','Initializing virtual TPM'],['VFS','Mounting local filesystem'],['INIT','Starting userspace']];
+let i=0;
+function tick(){if(i===steps.length){return currentSession().then(s=>{if(!d.oobeComplete)location.replace('oobe.html');else location.replace(s?'user.html':'welcome.html')});}const [a,b]=steps[i++];const row=document.createElement('div');row.innerHTML=`<span>${a}</span><b>OK</b>`;lines.append(row);bar.style.width=((i/steps.length)*100)+'%';setTimeout(tick,170)} 
+document.querySelector('#skip').onclick=()=>location.replace('bootloader.html');window.addEventListener('keydown',e=>{if(e.key==='F12'||e.key==='Escape'){e.preventDefault();location.replace('bootloader.html')}});
+tick();
+</script>
+</body></html>

@@ -1,1 +1,22 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f7f9"><title>Set up OWDOS</title><link rel="stylesheet" href="system.css"></head><body data-page="oobe"><div class="oobe-wrap"><aside class="oobe-side"><div><a class="brand" href="index.html"><span class="brand-mark">OW</span><span><b>OWDOS</b><small>Ordbit Web Distro</small></span></a><h2>Set up your device</h2><p>OWDOS starts at the device boundary. This setup configures the machine before a user session exists.</p></div><div class="oobe-side-facts"><span id="oobe-device"></span><span id="oobe-firmware"></span><span id="oobe-kernel"></span></div></aside><main class="oobe-main"><header class="oobe-top"><span id="step-label"></span><span id="network-label">Checking network…</span></header><div class="oobe-progress-light" id="progress"></div><section class="oobe-main-content"><div id="body"></div></section><footer class="oobe-bottom"><small id="footer-hint">Nothing is changed until you continue.</small><div class="oobe-actions"><button class="button" id="back">Back</button><button class="button primary" id="next">Next</button></div></footer></main></div><script type="module" src="oobe.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Set up OWDOS</title><link rel="stylesheet" href="system.css">
+<link rel="icon" href="favicon.svg"></head>
+<body>
+<div class="oobe-page">
+  <div class="oobe-bg"></div>
+  <div class="oobe-status"><span id="oobe-network">Network</span><span id="oobe-time">--:--</span></div>
+  <main class="oobe-card">
+    <header class="oobe-head">
+      <a class="brand" href="index.html"><span class="brand-mark">OW</span><span class="brand-name"><b>OWDOS</b><small>Ordbit Web Distro</small></span></a>
+      <div class="oobe-device" id="device-id"></div>
+    </header>
+    <div class="oobe-progress" id="progress"></div>
+    <section id="step"></section>
+    <footer class="oobe-footer"><div id="a11y"></div><div class="oobe-actions"><button class="button ghost" id="back">Back</button><button class="button primary" id="next">Get started</button></div></footer>
+  </main>
+</div>
+<script type="module" src="oobe.js"></script>
+</body></html>
