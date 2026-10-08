@@ -1,22 +1,804 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Set up OWDOS</title><link rel="stylesheet" href="system.css">
-<link rel="icon" href="favicon.svg"></head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OWDOS Setup</title>
+<link rel="stylesheet" href="OWDOS.css">
+<style>
+body{
+  margin:0;padding:0;
+  width:100%;height:100%;overflow:hidden;
+  font-family:'Google Sans',Roboto,Arial,sans-serif;
+  display:flex;align-items:center;justify-content:center;
+  background:#5b7a9d;
+}
+/* ── WALLPAPER ── */
+#oobe-bg{
+  position:fixed;inset:0;z-index:0;
+  background-image:url("owdos-wallpaper.svg");
+  background-size:cover;background-position:center;background-repeat:no-repeat;
+}
+#oobe-bg::after{content:'';position:absolute;inset:0;background:rgba(0,0,0,0.1);}
+
+/* ── CARD ── */
+#oobe-card{
+  position:relative;z-index:10;
+  width:680px;
+  background:#fff;
+  border-radius:16px;
+  box-shadow:0 8px 40px rgba(0,0,0,0.22),0 2px 8px rgba(0,0,0,0.1);
+  overflow:hidden;
+  display:flex;flex-direction:column;
+  max-height:calc(100vh - 60px);
+}
+
+/* ── STEPS ── */
+.step{display:none;flex-direction:column;flex:1;min-height:0;}
+.step.active{display:flex;}
+
+/* ── WELCOME STEP layout (image + text side by side on newer OOBE) ── */
+.step-body{flex:1;overflow-y:auto;padding:40px 48px 24px;}
+.step-footer{
+  padding:16px 48px 24px;
+  display:flex;align-items:center;gap:12px;
+  flex-shrink:0;
+}
+.step-footer-left{flex:1;display:flex;align-items:center;gap:12px;}
+.step-footer-right{display:flex;gap:10px;}
+
+/* ── TYPOGRAPHY ── */
+.step-title{font-size:32px;font-weight:400;color:#202124;margin-bottom:6px;line-height:1.15;font-family:'Google Sans Display','Google Sans',Roboto,sans-serif;}
+.step-sub{font-size:14px;color:#5f6368;line-height:1.6;margin-bottom:0;}
+.step-sep{height:1px;background:#e8eaed;margin:20px 0;}
+
+/* ── LANGUAGE OPTION ── */
+.lang-option{
+  display:flex;align-items:center;gap:12px;
+  padding:12px 14px;border-radius:8px;cursor:pointer;
+  border:1.5px solid transparent;transition:background 0.12s,border-color 0.12s;
+  margin-bottom:6px;
+}
+.lang-option:hover{background:#f1f3f4;}
+.lang-option.selected{background:#e8f0fe;border-color:#1a73e8;}
+.lang-option-globe{font-size:20px;}
+.lang-option-text{font-size:15px;color:#202124;}
+
+/* accessibility option */
+.a11y-option{
+  display:flex;align-items:center;gap:12px;
+  padding:12px 14px;border-radius:8px;cursor:pointer;
+  border:1.5px solid transparent;transition:background 0.12s;
+  margin-bottom:4px;
+}
+.a11y-option:hover{background:#f1f3f4;}
+.a11y-option-icon{font-size:18px;width:24px;text-align:center;}
+.a11y-option-text{font-size:15px;color:#202124;flex:1;}
+
+/* ── NETWORK LIST ── */
+.net-item{
+  display:flex;align-items:center;gap:12px;
+  padding:13px 14px;border-radius:8px;cursor:pointer;
+  border:1.5px solid transparent;transition:background 0.12s;
+  margin-bottom:4px;
+}
+.net-item:hover{background:#f1f3f4;}
+.net-item.selected{background:#e8f0fe;border-color:#1a73e8;}
+.net-item-icon{font-size:18px;width:24px;text-align:center;}
+.net-item-name{font-size:15px;color:#202124;flex:1;}
+.net-item-strength{font-size:12px;color:#9aa0a6;}
+.net-item-check{color:#1a73e8;font-weight:600;}
+.net-pw-input{
+  width:100%;height:52px;border:1px solid #dadce0;border-radius:8px;
+  padding:0 14px;font-size:15px;color:#202124;outline:none;
+  transition:border-color 0.2s;margin-top:8px;font-family:inherit;
+}
+.net-pw-input:focus{border-color:#1a73e8;border-width:2px;}
+
+/* ── EULA ── */
+.eula-box{
+  border:1px solid #dadce0;border-radius:8px;padding:16px;
+  font-size:13px;color:#5f6368;line-height:1.7;
+  overflow-y:auto;height:200px;margin-bottom:16px;
+}
+
+/* ── UPDATE ── */
+.update-prog-bar{height:4px;background:#e8eaed;border-radius:2px;overflow:hidden;margin:16px 0 8px;}
+.update-prog-fill{height:100%;background:#1a73e8;border-radius:2px;width:0%;transition:width 0.3s;}
+
+/* ── SIGN-IN ── note: uses the embedded google sign-in UI ── */
+#signin-frame-bar{
+  background:#f1f3f4;padding:8px 12px;display:flex;align-items:center;
+  gap:8px;border-bottom:1px solid #e8eaed;flex-shrink:0;
+}
+#signin-url{
+  flex:1;background:#fff;border:1px solid #dadce0;border-radius:14px;
+  padding:5px 12px;font-size:11.5px;color:#5f6368;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+#signin-content{flex:1;overflow:hidden;display:flex;flex-direction:column;}
+.signin-inner{
+  width:100%;height:100%;display:flex;flex-direction:column;
+  align-items:center;padding:24px 32px 16px;overflow-y:auto;background:#fff;
+}
+/* Google wordmark */
+.g-wordmark{width:74px;height:24px;margin-bottom:20px;flex-shrink:0;}
+.g-title{font-size:24px;font-weight:400;color:#202124;margin-bottom:6px;text-align:center;font-family:'Google Sans',Roboto,sans-serif;}
+.g-sub{font-size:15px;color:#5f6368;margin-bottom:20px;text-align:center;font-family:Roboto,sans-serif;}
+/* floating-label input */
+.g-field{position:relative;width:100%;margin-bottom:4px;}
+.g-input{
+  width:100%;height:56px;border:1px solid #dadce0;border-radius:4px;
+  padding:20px 14px 4px;font-size:16px;font-family:Roboto,sans-serif;
+  color:#202124;outline:none;transition:border-color 0.2s;background:#fff;
+}
+.g-input:focus{border-color:#1a73e8;border-width:2px;}
+.g-label{
+  position:absolute;left:14px;top:50%;transform:translateY(-50%);
+  font-size:16px;color:#5f6368;pointer-events:none;
+  transition:top 0.18s,font-size 0.18s,color 0.18s;
+  font-family:Roboto,sans-serif;background:transparent;
+}
+.g-input:focus~.g-label,.g-input.filled~.g-label{top:12px;font-size:11px;transform:none;}
+.g-input:focus~.g-label{color:#1a73e8;}
+.g-hint{font-size:12px;color:#5f6368;margin-bottom:14px;padding:0 2px;font-family:Roboto,sans-serif;}
+.g-hint a{color:#1a73e8;text-decoration:none;font-weight:500;}
+.g-hint a:hover{text-decoration:underline;}
+.g-err{font-size:12px;color:#d93025;margin-bottom:8px;padding:0 2px;display:none;}
+.g-err.show{display:block;}
+.g-row{display:flex;justify-content:space-between;align-items:center;width:100%;margin-top:8px;}
+.g-create{font-size:14px;color:#1a73e8;cursor:pointer;font-weight:500;font-family:'Google Sans',Roboto,sans-serif;}
+.g-create:hover{text-decoration:underline;}
+.g-next{background:#1a73e8;color:#fff;border:none;border-radius:4px;padding:0 24px;height:36px;font-size:14px;font-weight:500;cursor:pointer;font-family:'Google Sans',Roboto,sans-serif;transition:background 0.15s;}
+.g-next:hover{background:#1557b0;}
+.g-back{background:transparent;color:#1a73e8;border:none;padding:0 8px;height:36px;font-size:14px;font-weight:500;cursor:pointer;font-family:'Google Sans',Roboto,sans-serif;border-radius:4px;}
+.g-back:hover{background:#e8f0fe;}
+/* email chip for password stage */
+.g-chip{
+  display:flex;align-items:center;gap:8px;
+  border:1px solid #dadce0;border-radius:20px;
+  padding:6px 12px 6px 6px;margin-bottom:20px;cursor:pointer;
+  transition:background 0.12s;
+}
+.g-chip:hover{background:#f1f3f4;}
+.g-chip-av{width:28px;height:28px;border-radius:50%;background:#1a73e8;color:#fff;font-size:13px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.g-chip-text{font-size:14px;color:#202124;}
+.g-chip-arrow{color:#5f6368;font-size:11px;margin-left:2px;}
+.g-pw-eye{position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;color:#5f6368;padding:4px;}
+/* divider + guest button */
+.g-divider{width:100%;height:1px;background:#e0e0e0;margin:10px 0;}
+.g-guest-btn{
+  width:100%;padding:10px;border:1px solid #dadce0;border-radius:4px;
+  font-size:14px;color:#3c4043;background:#fff;cursor:pointer;
+  font-family:'Google Sans',Roboto,sans-serif;transition:background 0.12s;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.g-guest-btn:hover{background:#f1f3f4;}
+/* note text */
+.g-note{font-size:13px;color:#5f6368;text-align:center;line-height:1.5;margin-bottom:12px;font-family:Roboto,sans-serif;}
+.g-note a{color:#1a73e8;text-decoration:none;}
+.g-note a:hover{text-decoration:underline;}
+
+/* ── SYNC STEP ── */
+.sync-account-card{
+  background:#e8f0fe;border-radius:10px;padding:14px 16px;
+  display:flex;align-items:center;gap:12px;margin-bottom:18px;
+}
+.sync-av{width:44px;height:44px;border-radius:50%;background:#1a73e8;color:#fff;font-size:18px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.sync-toggle-row{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
+.cros-toggle{width:42px;height:24px;border-radius:12px;background:#dadce0;cursor:pointer;position:relative;transition:background 0.2s;flex-shrink:0;border:none;}
+.cros-toggle.on{background:#1a73e8;}
+.cros-toggle::after{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.25);transition:transform 0.2s;}
+.cros-toggle.on::after{transform:translateX(18px);}
+
+/* ── POWERWASH STEP (image 7) ── */
+#step-powerwash .step-body{display:flex;align-items:flex-start;gap:32px;}
+.pw-left{flex:1;}
+.pw-right{width:220px;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+.pw-icon-area svg{width:200px;height:180px;}
+.pw-title{font-size:28px;font-weight:400;color:#202124;margin-bottom:12px;line-height:1.2;}
+.pw-body{font-size:14px;color:#5f6368;line-height:1.65;margin-bottom:8px;}
+.pw-body a{color:#1a73e8;text-decoration:none;}
+.pw-body a:hover{text-decoration:underline;}
+.pw-warn-icon{font-size:22px;margin-bottom:12px;display:block;}
+
+/* ── ANDROID QR STEP (image 6) ── */
+#step-qr .step-body{display:flex;align-items:flex-start;gap:32px;}
+.qr-left{flex:1;}
+.qr-right{width:240px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:12px;}
+.qr-code-box{
+  width:160px;height:160px;border:3px solid #1a73e8;border-radius:8px;
+  background:#fff;display:flex;align-items:center;justify-content:center;
+  position:relative;overflow:hidden;
+}
+.qr-corner{
+  position:absolute;width:28px;height:28px;
+  border:4px solid #202124;border-radius:2px;
+}
+.qr-corner.tl{top:8px;left:8px;border-right:none;border-bottom:none;}
+.qr-corner.tr{top:8px;right:8px;border-left:none;border-bottom:none;}
+.qr-corner.bl{bottom:8px;left:8px;border-right:none;border-top:none;}
+.qr-inner{
+  width:100px;height:100px;
+  background:repeating-conic-gradient(#202124 0% 25%, transparent 0% 50%) 0 0/12px 12px;
+  opacity:0.85;
+}
+.qr-title{font-size:22px;font-weight:400;color:#202124;margin-bottom:10px;line-height:1.2;}
+.qr-body{font-size:14px;color:#5f6368;line-height:1.65;}
+.qr-phone-icon{font-size:32px;margin-bottom:8px;}
+.qr-step-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+.qr-step-icon{font-size:16px;width:24px;text-align:center;}
+.qr-step-text{font-size:13px;color:#5f6368;}
+.qr-visible{font-size:13px;color:#5f6368;font-style:italic;}
+
+/* ── GOOGLE ACCOUNT CHOICE STEP (image 8) ── */
+.account-choice-card{
+  border:1.5px solid #dadce0;border-radius:8px;padding:16px;
+  cursor:pointer;transition:background 0.12s,border-color 0.12s;
+  display:flex;align-items:center;gap:14px;margin-bottom:12px;
+}
+.account-choice-card:hover{background:#f8f9fa;}
+.account-choice-card.selected{border-color:#1a73e8;background:#e8f0fe;}
+.acc-card-img{width:64px;height:48px;background:#e8f0fe;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;}
+.acc-card-text{font-size:15px;color:#202124;}
+
+/* ── BUTTONS ── */
+.btn-primary{background:#1a73e8;color:#fff;border:none;border-radius:24px;padding:10px 24px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;transition:background 0.15s;}
+.btn-primary:hover{background:#1557b0;}
+.btn-secondary{background:transparent;color:#1a73e8;border:1px solid #dadce0;border-radius:24px;padding:10px 24px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;transition:background 0.15s;}
+.btn-secondary:hover{background:#f1f3f4;}
+.btn-text{background:transparent;color:#1a73e8;border:none;padding:10px 12px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;border-radius:4px;}
+.btn-text:hover{background:#e8f0fe;}
+/* powerwash dark button */
+.btn-dark{background:#3c4043;color:#fff;border:none;border-radius:24px;padding:10px 24px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;transition:background 0.15s;}
+.btn-dark:hover{background:#5f6368;}
+
+/* ── BOTTOM STATUS (image 5 shows date+time+wifi in corner) ── */
+#oobe-status-bar{
+  position:fixed;bottom:12px;right:16px;z-index:20;
+  display:flex;align-items:center;gap:10px;
+  background:rgba(255,255,255,0.15);backdrop-filter:blur(8px);
+  border-radius:20px;padding:5px 14px;
+}
+.oobe-status-item{font-size:12px;color:#fff;font-weight:500;display:flex;align-items:center;gap:4px;}
+.oobe-status-item svg{width:14px;height:14px;}
+#oobe-time-lbl{font-size:13px;font-weight:600;color:#fff;}
+
+/* ── ACCESSIBILITY BAR ── */
+#oobe-a11y-bar{
+  position:fixed;bottom:14px;left:50%;transform:translateX(-50%);
+  display:flex;gap:8px;z-index:100;
+}
+.a11y-pill{
+  background:rgba(0,0,0,0.45);backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,0.2);border-radius:20px;
+  padding:6px 14px;font-size:12px;color:#fff;cursor:pointer;
+  transition:background 0.15s;font-family:inherit;
+}
+.a11y-pill:hover{background:rgba(0,0,0,0.65);}
+
+/* ── HINT ── */
+#oobe-hint{position:fixed;top:12px;right:16px;font-size:11px;color:rgba(255,255,255,0.5);z-index:100;}
+
+/* ── POWERWASH OVERLAY ── */
+#pw-overlay{
+  display:none;position:fixed;inset:0;z-index:9999;
+  background:rgba(0,0,0,0.5);align-items:center;justify-content:center;
+}
+#pw-overlay.show{display:flex;}
+
+/* Toast */
+#toast{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(10px);
+  background:rgba(32,33,36,0.92);color:#fff;padding:9px 20px;border-radius:24px;
+  font-size:13px;pointer-events:none;opacity:0;
+  transition:opacity 0.2s,transform 0.2s;z-index:9998;white-space:nowrap;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* spinner */
+.spinner{width:32px;height:32px;border:3px solid #e8eaed;border-top-color:#1a73e8;border-radius:50%;animation:spin 0.9s linear infinite;margin:0 auto;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.ow-ob-mark,.ow-auth-logo{width:56px;height:56px;border-radius:16px;display:grid;place-items:center;background:#202124;color:#fff;font-weight:800;letter-spacing:-.08em;margin-bottom:18px;box-shadow:0 8px 24px rgba(0,0,0,.16)}.ow-auth-logo{margin:0 auto 18px}
+</style>
+</head>
 <body>
-<div class="oobe-page">
-  <div class="oobe-bg"></div>
-  <div class="oobe-status"><span id="oobe-network">Network</span><span id="oobe-time">--:--</span></div>
-  <main class="oobe-card">
-    <header class="oobe-head">
-      <a class="brand" href="index.html"><span class="brand-mark">OW</span><span class="brand-name"><b>OWDOS</b><small>Ordbit Web Distro</small></span></a>
-      <div class="oobe-device" id="device-id"></div>
-    </header>
-    <div class="oobe-progress" id="progress"></div>
-    <section id="step"></section>
-    <footer class="oobe-footer"><div id="a11y"></div><div class="oobe-actions"><button class="button ghost" id="back">Back</button><button class="button primary" id="next">Get started</button></div></footer>
-  </main>
+<div id="oobe-bg"></div>
+
+<!-- status bar bottom right -->
+<div class="oobe-device-id" id="oobe-device-id"></div>
+<div id="oobe-status-bar">
+  <div class="oobe-status-item">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1.42 9a16 16 0 0 1 21.16 0M5 12.55a11 11 0 0 1 14.08 0M10.54 16.1a6 6 0 0 1 2.92 0M12 20h.01"/></svg>
+  </div>
+  <div id="oobe-time-lbl">--:-- --</div>
+  <div class="oobe-status-item">
+    <img src="owdos.png" style="width:20px;height:20px;border-radius:50%;" alt="">
+  </div>
 </div>
-<script type="module" src="oobe.js"></script>
-</body></html>
+
+<!-- accessibility bar -->
+<div id="oobe-a11y-bar">
+  <button class="a11y-pill" onclick="gotoStep('step-a11y')">♿ Accessibility</button>
+  <button class="a11y-pill" onclick="showToast('OW BrowserVox enabled')">📢 OW BrowserVox</button>
+  <button class="a11y-pill" onclick="toggleHighContrast()">◑ High contrast</button>
+</div>
+
+<div id="oobe-hint">Ctrl+Alt+Shift+R — Powerwash &nbsp;|&nbsp; Hold 1+4+= — Recovery</div>
+
+<div id="oobe-card">
+
+  <!-- ── STEP: WELCOME (image 5) ── -->
+  <div class="step active" id="step-welcome">
+    <div class="step-body" style="display:flex;gap:0;padding:0;">
+      <!-- left text panel -->
+      <div style="flex:1;padding:40px 40px 24px;display:flex;flex-direction:column;justify-content:space-between;">
+        <div>
+          <div class="step-title" style="font-size:28px;margin-bottom:4px;">Welcome to your<br>OWDOS device</div>
+          <div class="step-sub" style="margin-bottom:20px;font-size:14px;font-style:italic;">Fast. Secure. Effortless.</div>
+          <div class="step-sep"></div>
+          <!-- Language option -->
+          <div class="lang-option selected" onclick="gotoStep('step-lang')">
+            <span class="lang-option-globe">🌐</span>
+            <span class="lang-option-text">English (United States)</span>
+            <svg style="margin-left:auto;width:16px;height:16px;flex-shrink:0" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+          <!-- Accessibility option -->
+          <div class="a11y-option" onclick="gotoStep('step-a11y')">
+            <span style="font-size:20px;">♿</span>
+            <span class="lang-option-text">Accessibility</span>
+            <svg style="margin-left:auto;width:16px;height:16px;flex-shrink:0" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+      </div>
+      <!-- right illustration -->
+      <div style="width:240px;flex-shrink:0;background:#f8f9fa;display:flex;align-items:center;justify-content:center;padding:20px;">
+        <!-- Google OOBE illustration characters — simplified SVG -->
+        <svg viewBox="0 0 200 200" width="200" height="200">
+          <!-- person 1 — left, holding laptop -->
+          <ellipse cx="44" cy="160" rx="20" ry="6" fill="#e8eaed"/>
+          <rect x="30" y="120" width="28" height="40" rx="4" fill="#5f6368"/>
+          <circle cx="44" cy="108" r="18" fill="#fbbc04"/>
+          <rect x="26" y="125" width="18" height="12" rx="3" fill="#4285f4" transform="rotate(-10,35,131)"/>
+          <line x1="50" y1="130" x2="60" y2="138" stroke="#5f6368" stroke-width="4" stroke-linecap="round"/>
+          <!-- person 2 — center, sitting -->
+          <ellipse cx="100" cy="172" rx="20" ry="5" fill="#e8eaed"/>
+          <rect x="80" y="138" width="40" height="34" rx="8" fill="#fbbc04"/>
+          <circle cx="100" cy="120" r="18" fill="#9e6b3d"/>
+          <rect x="82" y="118" width="36" height="22" rx="4" fill="#202124"/>
+          <!-- small flag/triangle above center person -->
+          <polygon points="100,90 114,100 100,105" fill="#ea4335"/>
+          <!-- dots floating -->
+          <circle cx="120" cy="98" r="5" fill="#34a853" opacity="0.8"/>
+          <circle cx="130" cy="88" r="3" fill="#1a73e8" opacity="0.7"/>
+          <!-- person 3 — right, standing -->
+          <ellipse cx="162" cy="160" rx="18" ry="5" fill="#e8eaed"/>
+          <rect x="148" y="124" width="28" height="36" rx="4" fill="#1a73e8"/>
+          <circle cx="162" cy="112" r="16" fill="#f8d7a4"/>
+          <line x1="176" y1="136" x2="186" y2="128" stroke="#1a73e8" stroke-width="4" stroke-linecap="round"/>
+          <rect x="182" y="120" width="14" height="10" rx="2" fill="#e8eaed" stroke="#9aa0a6" stroke-width="1"/>
+        </svg>
+      </div>
+    </div>
+    <div class="step-footer">
+      <div class="step-footer-left">
+        <button class="btn-secondary" onclick="gotoStep('step-qr-choice')" style="font-size:13px;padding:8px 16px;white-space:nowrap;">
+          📱 Quick setup with Android phone
+        </button>
+      </div>
+      <div class="step-footer-right">
+        <button class="btn-primary" onclick="gotoStep('step-network')">Get started</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STEP: LANGUAGE ── -->
+  <div class="step" id="step-lang">
+    <div class="step-body">
+      <div class="step-title">Choose your language</div>
+      <div class="step-sub" style="margin-bottom:16px">You can change this later in Settings.</div>
+      <div style="overflow-y:auto;max-height:260px;">
+        ${['English (United States)','English (United Kingdom)','Español','Français','Deutsch','日本語','中文（简体）','한국어','Português (Brasil)'].map((l,i)=>`
+        <div class="lang-option${i===0?' selected':''}" onclick="document.querySelectorAll('.lang-option').forEach(x=>x.classList.remove('selected'));this.classList.add('selected')">
+          <span class="lang-option-globe">🌐</span>
+          <span class="lang-option-text">${l}</span>
+          ${i===0?'<svg style="margin-left:auto;width:16px;height:16px" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>':''}
+        </div>`).join('')}
+      </div>
+    </div>
+    <div class="step-footer">
+      <div class="step-footer-left"></div>
+      <div class="step-footer-right">
+        <button class="btn-text" onclick="gotoStep('step-welcome')">Back</button>
+        <button class="btn-primary" onclick="gotoStep('step-network')">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STEP: QR CHOICE (image 6) ── -->
+  <div class="step" id="step-qr-choice">
+    <div class="step-body" style="display:flex;gap:32px;padding:36px 40px 20px;">
+      <div class="qr-left">
+        <div class="qr-phone-icon">📱</div>
+        <div class="qr-title">Scan the QR code with<br>your Android phone</div>
+        <div class="qr-body" style="margin-bottom:14px;">
+          Easily set up your OWDOS device with your phone. You can add your network and OWDOS account after setup.
+        </div>
+        <div class="qr-visible">Visible as OWDOS device...</div>
+      </div>
+      <div class="qr-right">
+        <div class="qr-code-box">
+          <div class="qr-corner tl"></div>
+          <div class="qr-corner tr"></div>
+          <div class="qr-corner bl"></div>
+          <div class="qr-inner"></div>
+        </div>
+        <div class="qr-step-row"><span class="qr-step-icon">🔵</span><span class="qr-step-text">Turn on your phone's Bluetooth and Wi-Fi</span></div>
+        <div class="qr-step-row"><span class="qr-step-icon">📷</span><span class="qr-step-text">Follow instructions on your phone or use the camera app</span></div>
+      </div>
+    </div>
+    <div class="step-footer">
+      <div class="step-footer-left"></div>
+      <div class="step-footer-right">
+        <button class="btn-text" onclick="gotoStep('step-welcome')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STEP: NETWORK ── -->
+  <div class="step" id="step-network">
+    <div class="step-body">
+      <div class="step-title">Connect to a network</div>
+      <div class="step-sub" style="margin-bottom:16px">Your OWDOS device needs internet access to continue setup.</div>
+      <div id="net-list">
+        <div class="net-item selected" onclick="selectNet(this,'OWDOS Wi-Fi')">
+          <span class="net-item-icon">📶</span>
+          <span class="net-item-name">OWDOS Wi-Fi</span>
+          <span class="net-item-strength">Excellent</span>
+          <span class="net-item-check">✓</span>
+        </div>
+        <div class="net-item" onclick="selectNet(this,'OWDOS Home')">
+          <span class="net-item-icon">📶</span>
+          <span class="net-item-name">OWDOS Home</span>
+          <span style="font-size:12px">🔒</span>
+          <span class="net-item-strength">Good</span>
+        </div>
+        <div class="net-item" onclick="selectNet(this,'Guest network')">
+          <span class="net-item-icon">📶</span>
+          <span class="net-item-name">Guest network</span>
+          <span class="net-item-strength">Fair</span>
+        </div>
+        <div class="net-item" onclick="selectNet(this,'Device hotspot')">
+          <span class="net-item-icon">📶</span>
+          <span class="net-item-name">Device hotspot</span>
+          <span style="font-size:12px">🔒</span>
+          <span class="net-item-strength">Weak</span>
+        </div>
+      </div>
+      <div id="net-pw-wrap" style="display:none;">
+        <input class="net-pw-input" type="password" id="net-pw" placeholder="Wi-Fi password" onkeydown="if(event.key==='Enter')connectNet()">
+        <div id="net-connecting" style="font-size:12px;color:#5f6368;margin-top:6px;"></div>
+      </div>
+      <span style="font-size:13px;color:#1a73e8;cursor:pointer;font-weight:500;margin-top:10px;display:inline-block" onclick="gotoStep('step-eula')">Skip — connect later</span>
+    </div>
+    <div class="step-footer">
+      <div class="step-footer-left"></div>
+      <div class="step-footer-right">
+        <button class="btn-text" onclick="gotoStep('step-welcome')">Back</button>
+        <button class="btn-primary" id="net-next-btn" onclick="connectNet()">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STEP: EULA ── -->
+  <div class="step" id="step-eula">
+    <div class="step-body">
+      <div class="step-title" style="font-size:26px">Terms of Service</div>
+      <div class="step-sub" style="margin-bottom:14px">Review the OWDOS terms to continue.</div>
+      <div class="eula-box">
+        <strong>Google OWDOS Terms of Service</strong><br><br>
+        By using this OWDOS device, you agree to the Google Terms of Service at https://360digitalco.github.io/owdos and the OWDOS Additional Terms of Service.<br><br>
+        <strong>Privacy</strong><br>Your use of OWDOS is subject to the Google Privacy Policy at https://360digitalco.github.io/owdos/privacy. Diagnostic and usage data may be sent to Google to help improve OWDOS.<br><br>
+        <strong>Software Updates</strong><br>OWDOS is designed to update automatically in the background.<br><br>
+        <strong>Trademarks</strong><br>OW Browser, OWDOS, and the OW Browser logo are trademarks of Google LLC.<br><br>
+        <strong>Open Source</strong><br>OWDOS contains open source software. Licenses are available at chrome://credits.<br><br>
+        <strong>Limitation of Liability</strong><br>TO THE EXTENT PERMITTED BY LAW, GOOGLE AND ITS SUPPLIERS WILL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR EXEMPLARY DAMAGES.
+      </div>
+      <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;color:#202124;">
+        <input type="checkbox" id="eula-check" onchange="document.getElementById('eula-next').disabled=!this.checked" style="width:16px;height:16px;cursor:pointer;accent-color:#1a73e8;">
+        I agree to the Google Terms of Service
+      </label>
+    </div>
+    <div class="step-footer">
+      <div class="step-footer-left"></div>
+      <div class="step-footer-right">
+        <button class="btn-text" onclick="gotoStep('step-network')">Back</button>
+        <button class="btn-primary" id="eula-next" disabled onclick="gotoStep('step-update')">Accept and continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STEP: UPDATE ── -->
+  <div class="step" id="step-update">
+    <div class="step-body" style="align-items:center;text-align:center;padding-top:60px;">
+      <div style="font-size:52px;margin-bottom:16px">🔄</div>
+      <div class="step-title" style="text-align:center;">Checking for updates</div>
+      <div class="step-sub" style="text-align:center;">Making sure your OWDOS device has the latest software.</div>
+      <div class="update-prog-bar" style="width:320px;margin:16px auto 8px;">
+        <div class="update-prog-fill" id="update-fill"></div>
+      </div>
+      <div id="update-status" style="font-size:13px;color:#9aa0a6;">Downloading update...</div>
+    </div>
+    <div class="step-footer">
+      <div class="step-footer-left"></div>
+      <div class="step-footer-right">
+        <button class="btn-text" onclick="gotoStep('step-account-choice')">Skip</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STEP: GOOGLE ACCOUNT CHOICE (image 8) ── -->
+  <div class="step" id="step-account-choice">
+  <div class="step-body">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;cursor:pointer;color:#1a73e8;font-size:14px;font-weight:500" onclick="gotoStep('step-update')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg> Back
+    </div>
+    <div style="display:flex;align-items:flex-start;gap:32px;">
+      <div style="flex:1;">
+        <div class="ow-ob-mark">OW</div>
+        <div class="step-title" style="font-size:24px;">Choose your OWDOS account</div>
+        <div class="step-sub" style="margin-top:10px;font-size:13px;max-width:330px;">
+          Sign in to keep your OWDOS account available on this device. Your local files remain stored on this browser.
+        </div>
+      </div>
+      <div style="width:280px;flex-shrink:0;padding-top:40px;display:grid;gap:9px;">
+        <div class="account-choice-card selected" onclick="chooseAccountMode('signin',this)"><div class="acc-card-img">→</div><div class="acc-card-text">Sign in to an existing OWDOS account</div></div>
+        <div class="account-choice-card" onclick="chooseAccountMode('signup',this)"><div class="acc-card-img">+</div><div class="acc-card-text">Create a new OWDOS account</div></div>
+        <div class="account-choice-card" onclick="chooseAccountMode('guest',this)"><div class="acc-card-img">○</div><div class="acc-card-text">Continue as Guest</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="step-footer"><div class="step-footer-left"></div><div class="step-footer-right"><button class="btn-primary" onclick="continueAccountChoice()">Next</button></div></div>
+</div>
+
+<!-- ── STEP: SIGN-IN ── -->
+  <div class="step" id="step-signin">
+  <div class="signin-inner">
+    <div class="ow-auth-logo">OW</div>
+    <div class="g-title">Sign in to OWDOS</div>
+    <div class="g-sub" style="max-width:420px">Use the same email and password you use for your OWDOS account.</div>
+    <form id="oobe-auth-form" style="width:min(390px,100%);display:grid;gap:12px;" onsubmit="oobeSignin(event)">
+      <input class="g-input" id="oobe-email" type="email" placeholder="Email" autocomplete="email" required style="padding:0 14px;">
+      <input class="g-input" id="oobe-password" type="password" placeholder="Password" autocomplete="current-password" required style="padding:0 14px;">
+      <div id="oobe-auth-error" class="g-err"></div>
+      <div class="g-row"><button type="button" class="g-back" onclick="gotoStep('step-account-choice')">Back</button><button type="submit" class="g-next">Sign in</button></div>
+    </form>
+    <div class="g-divider" style="width:min(390px,100%);"></div>
+    <button class="g-guest-btn" onclick="location.href='signup.html?from=oobe'"><span style="font-size:18px">+</span>Create an account</button>
+    <button class="g-guest-btn" onclick="skipSignin()"><span style="font-size:18px">○</span>Continue as Guest</button>
+  </div>
+</div>
+
+<!-- ── STEP: SYNC ── -->
+  <div class="step" id="step-sync">
+    <div class="step-body">
+      <div class="step-title" style="font-size:26px;">You're signed in!</div>
+      <div class="step-sub" id="sync-sub" style="margin-bottom:16px;">Review sync settings for your account.</div>
+      <div class="sync-account-card">
+        <div class="sync-av" id="sync-av">G</div>
+        <div>
+          <div id="sync-name" style="font-size:14px;font-weight:500;color:#202124;">Google User</div>
+          <div id="sync-email" style="font-size:12px;color:#5f6368;">user@gmail.com</div>
+        </div>
+      </div>
+      <div class="sync-toggle-row"><button class="cros-toggle on" onclick="this.classList.toggle('on')"></button><span style="font-size:14px;color:#202124;">Sync bookmarks, history, passwords</span></div>
+      <div class="sync-toggle-row"><button class="cros-toggle on" onclick="this.classList.toggle('on')"></button><span style="font-size:14px;color:#202124;">Sync Cloud files files offline</span></div>
+      <div class="sync-toggle-row"><button class="cros-toggle" onclick="this.classList.toggle('on')"></button><span style="font-size:14px;color:#202124;">Send diagnostic &amp; usage data to Google</span></div>
+      <div class="sync-toggle-row"><button class="cros-toggle" onclick="this.classList.toggle('on')"></button><span style="font-size:14px;color:#202124;">Improve OWDOS with additional data</span></div>
+    </div>
+    <div class="step-footer">
+      <div class="step-footer-left"></div>
+      <div class="step-footer-right">
+        <button class="btn-text" onclick="gotoStep('step-signin')">Back</button>
+        <button class="btn-primary" onclick="finishOOBE()">Accept and continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STEP: ACCESSIBILITY ── -->
+  <div class="step" id="step-a11y">
+    <div class="step-body">
+      <div class="step-title" style="font-size:26px;">Accessibility</div>
+      <div class="step-sub" style="margin-bottom:16px;">These features can be changed any time in Settings.</div>
+      ${[['OW BrowserVox (spoken feedback)','Screen reader for blind or low-vision users'],['High contrast mode','Increases display contrast'],['Large cursor','Makes the mouse cursor bigger'],['On-screen keyboard','Virtual keyboard for touch input'],['Sticky keys','Type keyboard shortcuts one key at a time']].map(([l,d])=>`
+      <div class="a11y-option">
+        <span class="a11y-option-icon">♿</span>
+        <div class="a11y-option-text">
+          <div style="font-size:14px;color:#202124;">${l}</div>
+          <div style="font-size:12px;color:#5f6368;">${d}</div>
+        </div>
+        <button class="cros-toggle" onclick="this.classList.toggle('on');showToast('${l} toggled')" style="margin-left:auto;flex-shrink:0;"></button>
+      </div>`).join('')}
+    </div>
+    <div class="step-footer">
+      <div class="step-footer-left"></div>
+      <div class="step-footer-right">
+        <button class="btn-text" onclick="gotoStep('step-welcome')">Back</button>
+        <button class="btn-primary" onclick="gotoStep('step-network')">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STEP: POWERWASH SCREEN (image 7) ── -->
+  <div class="step" id="step-powerwash">
+    <div class="step-body" style="flex-direction:row;gap:0;padding:40px 48px 24px;">
+      <div style="flex:1;">
+        <div style="font-size:22px;margin-bottom:12px;">⚠️</div>
+        <div class="pw-title">Reset this OWDOS device</div>
+        <div class="pw-body">
+          Powerwash to reset your OWDOS device to be just like new. All user accounts and local data will be removed.
+          <a href="#" onclick="showToast('Learn more');return false"> Learn more</a>
+        </div>
+      </div>
+      <!-- illustration -->
+      <div style="width:220px;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
+        <svg viewBox="0 0 180 180" width="180" height="180">
+          <!-- canvas/board -->
+          <rect x="60" y="30" width="90" height="75" rx="6" fill="#e8eaed" stroke="#dadce0" stroke-width="2"/>
+          <!-- shapes on board -->
+          <polygon points="120,45 140,75 100,75" fill="#ea4335" opacity="0.9"/>
+          <rect x="65" y="50" width="30" height="30" rx="4" fill="none" stroke="#3c4043" stroke-width="2"/>
+          <circle cx="90" cy="90" r="12" fill="#fbbc04"/>
+          <circle cx="110" cy="100" r="8" fill="#34a853" opacity="0.7"/>
+          <circle cx="75" cy="100" r="6" fill="#9aa0a6" opacity="0.6"/>
+          <!-- person painting -->
+          <ellipse cx="50" cy="165" rx="18" ry="5" fill="#e8eaed"/>
+          <rect x="38" y="120" width="24" height="44" rx="4" fill="#5f6368"/>
+          <circle cx="50" cy="108" r="16" fill="#f8d7a4"/>
+          <!-- paint bucket -->
+          <rect x="138" y="140" width="20" height="24" rx="3" fill="#fbbc04" stroke="#e8710a" stroke-width="1.5"/>
+          <rect x="140" y="134" width="16" height="8" rx="2" fill="#e8710a"/>
+        </svg>
+      </div>
+    </div>
+    <div class="step-footer">
+      <div class="step-footer-left"></div>
+      <div class="step-footer-right">
+        <button class="btn-text" onclick="gotoStep('step-welcome')">Cancel</button>
+        <button class="btn-dark" onclick="doPowerwash()">Powerwash</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /oobe-card -->
+
+<!-- Powerwash executing overlay -->
+<div id="pw-overlay">
+  <div style="background:#fff;border-radius:16px;padding:36px 48px;max-width:400px;width:90%;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,0.3);">
+    <div style="font-size:48px;margin-bottom:16px;">🔄</div>
+    <div style="font-size:22px;font-weight:400;color:#202124;margin-bottom:8px;">Resetting OWDOS device...</div>
+    <div style="font-size:13px;color:#5f6368;margin-bottom:24px;">Please wait. Do not turn off your device.</div>
+    <div class="spinner"></div>
+  </div>
+</div>
+
+<div id="toast"></div><script src="system.js"></script><script src="auth.js"></script>
+
+<script>
+// ── CLOCK ──
+function updateOobeClock() {
+  const now = new Date();
+  const el = document.getElementById('oobe-time-lbl');
+  if (el) el.textContent = now.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+}
+setInterval(updateOobeClock, 1000); updateOobeClock();
+
+// ── TOAST ──
+let toastT;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ── STEP NAV ──
+let curStep = 'step-welcome';
+function gotoStep(id) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
+  curStep = id;
+  if (id === 'step-update') startUpdate();
+  if (id === 'step-signin') {
+    document.getElementById('stage-email').style.display = 'flex';
+    document.getElementById('stage-pw').style.display = 'none';
+    document.getElementById('signin-wait').style.display = 'none';
+    signinTabOpened = false;
+  }
+}
+
+// ── NETWORK ──
+let selNet = 'OWDOS Wi-Fi';
+function selectNet(el, name) {
+  document.querySelectorAll('.net-item').forEach(x => x.classList.remove('selected'));
+  el.classList.add('selected'); selNet = name;
+  const pw = document.getElementById('net-pw-wrap');
+  const needs = ['OWDOS Home','Device hotspot'].includes(name);
+  pw.style.display = needs ? 'block' : 'none';
+  if (needs) setTimeout(() => document.getElementById('net-pw')?.focus(), 50);
+}
+function connectNet() {
+  const pw = document.getElementById('net-pw');
+  const btn = document.getElementById('net-next-btn');
+  const needs = ['OWDOS Home','Device hotspot'].includes(selNet);
+  if (needs && pw && !pw.value) {
+    document.getElementById('net-connecting').textContent = 'Please enter the Wi-Fi password.';
+    document.getElementById('net-connecting').style.color = '#d93025'; return;
+  }
+  if (btn) btn.disabled = true;
+  document.getElementById('net-connecting').textContent = 'Connecting...';
+  document.getElementById('net-connecting').style.color = '#5f6368';
+  setTimeout(() => { showToast('Connected to ' + selNet); gotoStep('step-eula'); if (btn) btn.disabled = false; }, 1200);
+}
+
+// ── UPDATE ANIMATION ──
+function startUpdate() {
+  const fill = document.getElementById('update-fill');
+  const status = document.getElementById('update-status');
+  const stages = [[20,'Checking for updates...'],[45,'Downloading update (134.0.6998.170)...'],[75,'Verifying download...'],[90,'Applying update...'],[100,'Update complete!']];
+  let si = 0;
+  const tick = () => {
+    if (si >= stages.length) { setTimeout(() => gotoStep('step-account-choice'), 800); return; }
+    const [pct, msg] = stages[si++];
+    if (fill) fill.style.width = pct + '%';
+    if (status) status.textContent = msg;
+    setTimeout(tick, pct === 100 ? 600 : 900);
+  };
+  setTimeout(tick, 400);
+}
+
+// ── ACCOUNT ──
+let accountMode='signin';
+function chooseAccountMode(mode,el){accountMode=mode;document.querySelectorAll('.account-choice-card').forEach(x=>x.classList.remove('selected'));if(el)el.classList.add('selected');}
+function continueAccountChoice(){if(accountMode==='guest'){location.href='guest.html';return}if(accountMode==='signup'){location.href='signup.html?from=oobe';return}gotoStep('step-signin');}
+async function oobeSignin(e){e.preventDefault();const err=document.getElementById('oobe-auth-error');err.classList.remove('show');err.textContent='';const r=await OWAuth.signIn(document.getElementById('oobe-email').value.trim(),document.getElementById('oobe-password').value);if(r.error){err.textContent=r.error.message.includes('Email not confirmed')?'Check your email before signing in.':r.error.message;err.classList.add('show');return}const u=r.data.user;localStorage.setItem('owdos_username',u?.user_metadata?.username||u?.email?.split('@')[0]||'user');OWSystem.set({oobe:true,guest:false});gotoStep('step-sync');}
+function skipSignin(){location.href='guest.html';}
+function finishOOBE(){document.getElementById('oobe-card').innerHTML='<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:70px 40px;gap:18px;text-align:center;"><div class="ow-auth-logo">OW</div><div style="font-size:28px;font-weight:400;color:#202124">Starting OWDOS</div><div style="font-size:14px;color:#5f6368">Your device is ready.</div><div class="spinner"></div></div>';setTimeout(()=>{OWSystem.set({oobe:true,guest:false});location.href='desktop.html'},1000)}
+
+// ── POWERWASH ──
+function doPowerwash() { document.getElementById('pw-overlay').classList.add('show'); setTimeout(() => { OWSystem.powerwash(); location.href='oobe.html'; }, 1200); }
+let highContrast = false;
+function toggleHighContrast() {
+  highContrast = !highContrast;
+  document.body.style.filter = highContrast ? 'contrast(1.5) invert(1)' : '';
+  showToast(highContrast ? 'High contrast on' : 'High contrast off');
+}
+
+// ── KEYBOARD ──
+const recKeys = new Set();
+document.addEventListener('keydown', e => {
+  const ctrl = e.ctrlKey, alt = e.altKey, shift = e.shiftKey, k = e.key;
+  if (ctrl && alt && shift && k === 'R') { e.preventDefault(); gotoStep('step-powerwash'); return; }
+  if (ctrl && alt && k === 'z') { e.preventDefault(); gotoStep('step-a11y'); return; }
+  if (k === 'Escape') { if (curStep === 'step-powerwash') gotoStep('step-welcome'); }
+  if (alt && k === 'ArrowLeft') {
+    e.preventDefault();
+    const back = {'step-network':'step-welcome','step-eula':'step-network','step-update':'step-eula','step-account-choice':'step-update','step-signin':'step-account-choice','step-sync':'step-signin','step-a11y':'step-welcome'};
+    const prev = back[curStep]; if (prev) gotoStep(prev);
+  }
+  if (['1','4','='].includes(k)) {
+    recKeys.add(k);
+    if (recKeys.size === 3) { showToast('Entering recovery mode...'); setTimeout(() => { window.location.href = 'recovery.html'; }, 800); }
+  }
+});
+document.addEventListener('keyup', e => recKeys.delete(e.key));
+</script>
+
+<script>
+const sys=OWSystem.get();document.getElementById('oobe-device-id').textContent='Device '+sys.deviceId.slice(0,8).toUpperCase();
+const ready=setInterval(()=>{const s=OWSystem.get();if(s.oobe){clearInterval(ready)}},500);
+</script>
+<style>.oobe-device-id{position:fixed;top:16px;left:18px;z-index:30;color:rgba(255,255,255,.72);font:10px ui-monospace,monospace;letter-spacing:.08em}.oobe-status-bar,.oobe-a11y-bar{z-index:20}.ow-ob-mark,.ow-auth-logo{width:56px;height:56px;border-radius:16px;display:grid;place-items:center;background:#202124;color:#fff;font-weight:800;letter-spacing:-.08em;margin-bottom:18px;box-shadow:0 8px 24px rgba(0,0,0,.16)}.ow-auth-logo{margin:0 auto 18px}
+</style>
+</body>
+</html>

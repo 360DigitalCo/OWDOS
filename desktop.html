@@ -1,61 +1,601 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#1f204a"><title>OWDOS</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/css/xterm.css">
-<link rel="stylesheet" href="system.css"><link rel="stylesheet" href="style.css">
-<link rel="icon" href="favicon.svg"></head>
-<body data-page="desktop">
-<main id="boot" class="hidden"></main>
-<main id="auth" class="hidden"></main>
-<main id="welcome" class="hidden"></main>
-<main id="user" class="hidden"></main>
-<main id="guest" class="hidden"></main>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OWDOS</title>
+<link rel="stylesheet" href="OWDOS.css">
+<style>
+/* ── DESKTOP-ONLY STYLES ── */
+html, body { background:#000; }
+
+#desktop {
+  width:100%; height:100%; position:relative; overflow:hidden;
+  background: var(--wp-current, linear-gradient(135deg,#1a73e8 0%,#0d47a1 40%,#4a148c 100%));
+  font-family: var(--font-ui);
+}
+
+/* ── LOCK SCREEN ── */
+#lock-screen {
+  position:absolute; inset:0; z-index:9990;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  gap:0;
+  background: inherit;
+}
+#lock-screen.hidden { display:none; }
+#lock-bg-blur {
+  position:absolute; inset:0;
+  background:rgba(0,0,0,0.35);
+  backdrop-filter:blur(2px);
+}
+.lock-content {
+  position:relative; z-index:1;
+  display:flex; flex-direction:column;
+  align-items:center; gap:0;
+}
+#lock-time {
+  font-size:88px; font-weight:300; color:#fff;
+  letter-spacing:-3px; line-height:1;
+  text-shadow:0 2px 24px rgba(0,0,0,0.3);
+}
+#lock-date-lbl {
+  font-size:20px; color:rgba(255,255,255,0.8);
+  margin-top:6px; margin-bottom:32px;
+  font-weight:400;
+}
+.lock-user-card {
+  display:flex; flex-direction:column; align-items:center; gap:12px;
+}
+.lock-avatar {
+  width:72px; height:72px; border-radius:50%;
+  background:var(--blue-600);
+  display:flex; align-items:center; justify-content:center;
+  font-size:28px; font-weight:600; color:#fff;
+  border:3px solid rgba(255,255,255,0.3);
+  box-shadow:0 4px 20px rgba(0,0,0,0.3);
+}
+.lock-username {
+  font-size:18px; color:#fff; font-weight:500;
+  text-shadow:0 1px 4px rgba(0,0,0,0.3);
+}
+.lock-pw-wrap { position:relative; }
+#lock-pw {
+  width:288px; height:50px;
+  background:rgba(255,255,255,0.16);
+  border:1.5px solid rgba(255,255,255,0.3);
+  border-radius:25px; padding:0 48px 0 20px;
+  color:#fff; font-size:16px;
+  outline:none; text-align:left;
+  font-family:var(--font-ui);
+  transition:background 0.2s, border-color 0.2s;
+}
+#lock-pw::placeholder { color:rgba(255,255,255,0.5); }
+#lock-pw:focus {
+  background:rgba(255,255,255,0.22);
+  border-color:rgba(255,255,255,0.6);
+}
+.lock-pw-submit {
+  position:absolute; right:6px; top:50%; transform:translateY(-50%);
+  width:38px; height:38px; border-radius:50%;
+  background:rgba(255,255,255,0.15);
+  border:none; color:#fff; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  transition:background 0.15s;
+}
+.lock-pw-submit:hover { background:rgba(255,255,255,0.28); }
+#lock-hint {
+  font-size:12px; color:rgba(255,255,255,0.45);
+  margin-top:8px; text-align:center;
+}
+.lock-footer-links {
+  position:absolute; bottom:28px; left:0; right:0;
+  display:flex; justify-content:center; gap:24px; z-index:1;
+}
+.lock-footer-link {
+  color:rgba(255,255,255,0.55); font-size:13px; cursor:pointer;
+  padding:4px 8px; border-radius:4px;
+  transition:color 0.15s;
+}
+.lock-footer-link:hover { color:#fff; }
+
+/* ── WINDOW CONTAINER ── */
+#window-container {
+  position:absolute; inset:0;
+  padding-bottom:var(--shelf-h);
+  pointer-events:none;
+}
+#window-container > * { pointer-events:all; }
+
+/* ── QUICK SETTINGS (show/hide animation) ── */
+#quick-settings {
+  transition: opacity var(--dur-medium) var(--ease-decel),
+              transform var(--dur-medium) var(--ease-decel);
+}
+#quick-settings:not(.open) {
+  opacity:0; transform:scale(0.96) translateY(4px);
+  pointer-events:none;
+}
+
+/* ── POWERWASH OVERLAY ── */
+#powerwash-overlay {
+  position:absolute; inset:0; z-index:9980;
+  background:rgba(0,0,0,0.75);
+  display:none; align-items:center; justify-content:center;
+}
+#powerwash-overlay.show { display:flex; }
+.pw-dialog {
+  background:#fff; border-radius:14px;
+  padding:28px 32px; max-width:440px; width:90%;
+  box-shadow:0 24px 80px rgba(0,0,0,0.35);
+}
+.pw-dialog h2 { font-size:20px; font-weight:500; color:var(--grey-900); margin-bottom:12px; }
+.pw-dialog p  { font-size:14px; color:var(--grey-700); line-height:1.65; margin-bottom:12px; }
+.pw-dialog .pw-warn { color:var(--red); font-weight:500; font-size:13px; margin-bottom:20px; }
+
+/* ── KEYBOARD SHORTCUT OVERLAY ── */
+#kbd-overlay {
+  position:absolute; inset:0; z-index:9970;
+  background:rgba(0,0,0,0.82);
+  display:none; align-items:center; justify-content:center;
+}
+#kbd-overlay.show { display:flex; }
+
+/* ── NOTIFICATION DOT ── */
+.notif-dot {
+  position:absolute; top:6px; right:6px;
+  width:8px; height:8px; border-radius:50%;
+  background:var(--red);
+  pointer-events:none;
+}
+
+/* ── OVERVIEW LABEL ── */
+#overview-label {
+  position:absolute; top:16px; left:50%;
+  transform:translateX(-50%);
+  color:rgba(255,255,255,0.6); font-size:13px;
+  pointer-events:none;
+}
+</style>
+</head>
+<body>
 <div id="desktop">
-  <div id="windows"></div>
-  <div id="desktop-status"></div>
-  <section id="launcher-menu" class="launcher-menu hidden">
-    <div class="launcher-head"><strong>Applications</strong><span id="launcher-user" style="color:#aeb4c0"></span></div>
-    <div class="launcher-grid">
-      <button class="app-launch" data-app="files"><span class="app-icon">▣</span><span>Files</span></button>
-      <button class="app-launch" data-app="terminal"><span class="app-icon">&gt;_</span><span>Terminal</span></button>
-      <button class="app-launch" data-app="browser"><span class="app-icon">◉</span><span>Browser</span></button>
-      <button class="app-launch" data-app="store"><span class="app-icon">+</span><span>OWD Store</span></button>
-      <button class="app-launch" data-app="settings"><span class="app-icon">⚙</span><span>Settings</span></button>
-      <button class="app-launch" data-app="monitor"><span class="app-icon">▥</span><span>System Monitor</span></button>
-      <button class="app-launch" data-app="about"><span class="app-icon">i</span><span>About OWDOS</span></button>
+
+  <!-- ══ LOCK SCREEN ══ -->
+  <div id="lock-screen">
+    <div id="lock-bg-blur"></div>
+    <div class="lock-content">
+      <div id="lock-time">12:00</div>
+      <div id="lock-date-lbl">Loading...</div>
+      <div class="lock-user-card">
+        <div class="lock-avatar" id="lock-avatar-img">G</div>
+        <div class="lock-username" id="lock-username-lbl">OWDOS User</div>
+        <div class="lock-pw-wrap">
+          <input id="lock-pw" type="password" placeholder="Password"
+            autocomplete="current-password"
+            onkeydown="lockKeydown(event)"
+            oninput="lockInput(this)">
+          <button class="lock-pw-submit" onclick="unlockScreen()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+        <div id="lock-hint">Enter password or PIN to unlock</div>
+      </div>
     </div>
-  </section>
-  <section id="quick-panel" class="quick-panel hidden">
-    <div class="panel-user"><div class="avatar" id="panel-avatar">O</div><div><b id="panel-name">OWDOS</b><span id="panel-email">Guest session</span></div></div>
-    <div class="qs-grid">
-      <button class="qs on" data-qs="wifi"><b>Wi-Fi</b><span>Connected</span></button>
-      <button class="qs on" data-qs="bluetooth"><b>Bluetooth</b><span>On</span></button>
-      <button class="qs" data-qs="dnd"><b>Do not disturb</b><span>Off</span></button>
-      <button class="qs" data-qs="dark"><b>Dark mode</b><span>On</span></button>
+    <div class="lock-footer-links">
+      <div class="lock-footer-link" onclick="showToast('Switching user...')">Switch user</div>
+      <div class="lock-footer-link" onclick="showToast('Shutting down...')">Shut down</div>
+      <div class="lock-footer-link" onclick="window.location.href='oobe.html'">Sign out</div>
     </div>
-    <div class="qs-foot"><button class="panel-btn" id="qs-settings">Settings</button><button class="panel-btn" id="qs-lock">Lock</button><button class="panel-btn" id="qs-signout">Sign out</button></div>
-  </section>
-  <section id="notif-panel" class="notif-panel hidden">
-    <div style="display:flex;justify-content:space-between;align-items:center"><h3>Notifications</h3><button class="panel-btn" id="clear-notifs">Clear all</button></div>
-    <div id="notif-list">
-      <article class="notif"><b>OWDOS system</b><p>Device services started successfully.</p></article>
-      <article class="notif"><b>OWD Store</b><p>Community applications are available through the app registry.</p></article>
-    </div>
-  </section>
-  <div class="taskbar">
-    <button id="launcher" class="task-button launcher" aria-label="Launcher"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="5" r="1.6"/><circle cx="12" cy="5" r="1.6"/><circle cx="19" cy="5" r="1.6"/><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/><circle cx="5" cy="19" r="1.6"/><circle cx="12" cy="19" r="1.6"/><circle cx="19" cy="19" r="1.6"/></svg></button>
-    <div id="task-list" class="task-list"></div>
-    <div class="taskbar-spacer"></div>
-    <div class="status-user" id="status-user"></div>
-    <button class="task-button" id="notif-toggle" title="Notifications"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></button>
-    <button class="task-button clock" id="clock" title="Quick Settings"></button>
   </div>
-  <div id="desktop-context" class="context-menu hidden"></div>
-</div>
-<script src="coi-serviceworker.js?v=9"></script>
-<script type="module" src="main.js?v=9"></script>
-<script type="module" src="desktop-ui.js?v=9"></script>
+
+  <!-- ══ OVERVIEW ══ -->
+  <div id="overview">
+    <div id="overview-label">All windows — click to switch, × to close</div>
+  </div>
+
+  <!-- ══ WINDOW CONTAINER ══ -->
+  <div id="window-container"></div>
+
+  <!-- ══ NOTIFICATION CENTER ══ -->
+  <div id="notif-center">
+    <div class="nc-header">
+      <span class="nc-title">Notifications</span>
+      <span class="nc-clear-btn" onclick="clearNotifications()">Clear all</span>
+    </div>
+    <div id="notif-list" style="overflow-y:auto;flex:1" class="dark-scroll">
+      <div class="nc-date-lbl">Today</div>
+      <div class="notif-card" onclick="this.remove()">
+        <div class="notif-card-hdr">
+          <div class="notif-app-icon" style="background:#1a73e8">📧</div>
+          <span class="notif-app-name">Gmail</span>
+          <span class="notif-time">2m ago</span>
+        </div>
+        <div class="notif-title">New message from Alex</div>
+        <div class="notif-body">Hey, are you available for a quick call today?</div>
+      </div>
+      <div class="notif-card" onclick="this.remove()">
+        <div class="notif-card-hdr">
+          <div class="notif-app-icon" style="background:#34a853">📅</div>
+          <span class="notif-app-name">Calendar</span>
+          <span class="notif-time">15m ago</span>
+        </div>
+        <div class="notif-title">Meeting in 30 minutes</div>
+        <div class="notif-body">Team standup · Video call · Conference Room B</div>
+      </div>
+      <div class="notif-card" onclick="this.remove()">
+        <div class="notif-card-hdr">
+          <div class="notif-app-icon" style="background:#f9ab00">🔔</div>
+          <span class="notif-app-name">System</span>
+          <span class="notif-time">1h ago</span>
+        </div>
+        <div class="notif-title">OWDOS update available</div>
+        <div class="notif-body">Version 134.0.6998.170 is ready to install after restart.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ QUICK SETTINGS ══ -->
+  <div id="quick-settings">
+    <div class="qs-header">
+      <div class="qs-user">
+        <div class="qs-avatar" id="qs-avatar">G</div>
+        <div>
+          <div class="qs-name" id="qs-name">OWDOS User</div>
+          <div class="qs-email" id="qs-email">user@gmail.com</div>
+        </div>
+      </div>
+    </div>
+    <div class="qs-tiles">
+      <div class="qs-tile on" onclick="toggleQsTile(this,'Wi-Fi on','Wi-Fi off')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1.42 9a16 16 0 0 1 21.16 0M5 12.55a11 11 0 0 1 14.08 0M10.54 16.1a6 6 0 0 1 2.92 0M12 20h.01"/></svg>
+        <span class="qs-tile-lbl">Wi-Fi</span>
+      </div>
+      <div class="qs-tile on" onclick="toggleQsTile(this,'Bluetooth on','Bluetooth off')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/></svg>
+        <span class="qs-tile-lbl">Bluetooth</span>
+      </div>
+      <div class="qs-tile" onclick="toggleQsTile(this,'Do not disturb on','Do not disturb off')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span class="qs-tile-lbl">Do not disturb</span>
+      </div>
+      <div class="qs-tile" onclick="toggleQsTile(this,'Dark mode on','Dark mode off')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <span class="qs-tile-lbl">Dark mode</span>
+      </div>
+      <div class="qs-tile" onclick="toggleQsTile(this,'Screen capture on','Screen capture off')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        <span class="qs-tile-lbl">Screen capture</span>
+      </div>
+      <div class="qs-tile" onclick="toggleQsTile(this,'Cast on','Cast off')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><path d="M2 12a9 9 0 0 1 8 8"/><path d="M2 16a5 5 0 0 1 4 4"/><line x1="2" y1="20" x2="2.01" y2="20"/></svg>
+        <span class="qs-tile-lbl">Cast</span>
+      </div>
+    </div>
+    <!-- Brightness -->
+    <div class="qs-slider-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      <input type="range" class="qs-slider" min="0" max="100" value="80" oninput="OWDOS.brightness=this.value">
+    </div>
+    <!-- Volume -->
+    <div class="qs-slider-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      <input type="range" class="qs-slider" min="0" max="100" value="60" oninput="OWDOS.volume=this.value">
+    </div>
+    <!-- Network row -->
+    <div class="qs-network-row">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"><path d="M1.42 9a16 16 0 0 1 21.16 0M5 12.55a11 11 0 0 1 14.08 0M10.54 16.1a6 6 0 0 1 2.92 0M12 20h.01"/></svg>
+      <span class="qs-network-name">OWDOS Wi-Fi</span>
+      <span class="qs-network-signal">Excellent ▸</span>
+    </div>
+    <div class="qs-footer">
+      <div class="qs-footer-btn" onclick="closeQuickSettings();openApp('settings')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </div>
+      <div class="qs-footer-btn" onclick="lockScreen()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Lock
+      </div>
+      <div class="qs-footer-btn" onclick="signOut()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Sign out
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ LAUNCHER ══ -->
+  <div id="launcher">
+    <div id="launcher-search-wrap">
+      <input id="launcher-search" type="text"
+        placeholder="Search apps, files, and the web..."
+        oninput="filterApps(this.value)"
+        onkeydown="launcherKeydown(event)">
+    </div>
+    <div id="launcher-tabs">
+      <div class="launcher-tab active" onclick="switchTab(this,'all')">All apps</div>
+      <div class="launcher-tab" onclick="switchTab(this,'recent')">Recent</div>
+      <div class="launcher-tab" onclick="switchTab(this,'suggestions')">Suggested</div>
+    </div>
+    <div id="launcher-grid" class="dark-scroll"></div>
+  </div>
+
+  <!-- ══ SHELF ══ -->
+  <div id="shelf">
+    <!-- Launcher toggle -->
+    <button class="shelf-btn" id="launcher-btn" title="Launcher (Search key)" onclick="toggleLauncher()">
+      <span class="icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" stroke-width="1.8">
+          <circle cx="5" cy="5" r="1.5" fill="rgba(255,255,255,0.9)" stroke="none"/>
+          <circle cx="12" cy="5" r="1.5" fill="rgba(255,255,255,0.9)" stroke="none"/>
+          <circle cx="19" cy="5" r="1.5" fill="rgba(255,255,255,0.9)" stroke="none"/>
+          <circle cx="5" cy="12" r="1.5" fill="rgba(255,255,255,0.9)" stroke="none"/>
+          <circle cx="12" cy="12" r="1.5" fill="rgba(255,255,255,0.9)" stroke="none"/>
+          <circle cx="19" cy="12" r="1.5" fill="rgba(255,255,255,0.9)" stroke="none"/>
+          <circle cx="5" cy="19" r="1.5" fill="rgba(255,255,255,0.9)" stroke="none"/>
+          <circle cx="12" cy="19" r="1.5" fill="rgba(255,255,255,0.9)" stroke="none"/>
+          <circle cx="19" cy="19" r="1.5" fill="rgba(255,255,255,0.9)" stroke="none"/>
+        </svg>
+      </span>
+    </button>
+
+    <!-- Pinned apps -->
+    <div id="shelf-pinned" style="display:flex;gap:2px;align-items:center"></div>
+
+    <div id="shelf-spacer"></div>
+
+    <!-- Status chips -->
+    <div id="shelf-status">
+      <!-- Notifications -->
+      <div class="status-chip" onclick="toggleNotifCenter()" title="Notifications" style="position:relative">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <div class="notif-dot"></div>
+      </div>
+      <!-- Battery -->
+      <div class="status-chip" title="Battery — 78%">
+        <svg width="18" height="16" viewBox="0 0 24 14" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="0.75" y="0.75" width="20.5" height="12.5" rx="2"/>
+          <line x1="22.5" y1="4.5" x2="22.5" y2="9.5" stroke-width="2.5" stroke-linecap="round"/>
+          <rect x="2" y="2" width="15" height="10" rx="1" fill="currentColor" stroke="none" opacity="0.75"/>
+        </svg>
+        <span>78%</span>
+      </div>
+      <!-- Wi-Fi -->
+      <div class="status-chip" title="Wi-Fi — OWDOS Wi-Fi">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1.42 9a16 16 0 0 1 21.16 0M5 12.55a11 11 0 0 1 14.08 0M10.54 16.1a6 6 0 0 1 2.92 0M12 20h.01"/></svg>
+      </div>
+      <!-- Clock / QS toggle -->
+      <div id="clock-widget" onclick="toggleQuickSettings()" title="Quick Settings">
+        <div id="clock-time">--:--</div>
+        <div id="clock-date">---</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ CONTEXT MENU ══ -->
+  <div id="ctx-menu">
+    <div class="ctx-item" onclick="openApp('browser')">
+      <span class="ctx-ico">🌐</span> New New OW Browser window
+      <span class="ctx-shortcut">Ctrl+N</span>
+    </div>
+    <div class="ctx-item" onclick="openApp('files')">
+      <span class="ctx-ico">📁</span> Open Files
+    </div>
+    <div class="ctx-item" onclick="openApp('terminal')">
+      <span class="ctx-ico">💻</span> Terminal
+    </div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" onclick="openApp('wallpaper')">
+      <span class="ctx-ico">🎨</span> Set wallpaper
+    </div>
+    <div class="ctx-item" onclick="openApp('settings')">
+      <span class="ctx-ico">⚙️</span> Settings
+    </div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" onclick="toggleOverview()">
+      <span class="ctx-ico">🪟</span> Show all windows
+      <span class="ctx-shortcut">F5</span>
+    </div>
+    <div class="ctx-item" onclick="showToast('Taking screenshot...')">
+      <span class="ctx-ico">📸</span> Take screenshot
+      <span class="ctx-shortcut">Ctrl+F5</span>
+    </div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item danger" onclick="showPowerwash()">
+      <span class="ctx-ico">🔄</span> Powerwash…
+    </div>
+  </div>
+
+  <!-- ══ POWERWASH OVERLAY ══ -->
+  <div id="powerwash-overlay">
+    <div class="pw-dialog">
+      <h2>Reset this OWDOS device?</h2>
+      <p>Powerwash removes all accounts, locally stored files, and settings. After resetting, you'll need to go through setup again.</p>
+      <p class="pw-warn">⚠ All data on this device will be permanently deleted.</p>
+      <div style="display:flex;justify-content:flex-end;gap:10px">
+        <button class="goog-btn goog-btn-text" onclick="hidePowerwash()">Cancel</button>
+        <button class="goog-btn goog-btn-primary" style="background:var(--red)"
+          onclick="executePowerwash()">Powerwash</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ KEYBOARD SHORTCUTS OVERLAY ══ -->
+  <div id="kbd-overlay">
+    <div style="background:#2a2b30;border-radius:16px;padding:28px 36px;
+      min-width:420px;max-width:600px;color:#fff;max-height:80vh;overflow-y:auto" class="dark-scroll">
+      <div style="font-size:18px;font-weight:500;margin-bottom:16px">OWDOS Keyboard Shortcuts</div>
+      ${[
+        ['Launcher',               'Alt+Shift+L / Search key'],
+        ['Overview (all windows)', 'F5'],
+        ['Screenshot',             'Ctrl+F5'],
+        ['Partial screenshot',     'Ctrl+Shift+F5'],
+        ['Screen record',          'Ctrl+Alt+F5'],
+        ['Lock screen',            'Ctrl+Shift+L'],
+        ['Sign out',               'Ctrl+Shift+Q (×2)'],
+        ['New window',             'Ctrl+N'],
+        ['Close window',           'Ctrl+W'],
+        ['Minimize',               'Alt+−'],
+        ['Maximize',               'Alt+='],
+        ['Snap left',              'Alt+['],
+        ['Snap right',             'Alt+]'],
+        ['Next window',            'Alt+Tab'],
+        ['Settings',               'Alt+Shift+S'],
+        ['Files',                  'Alt+Shift+M'],
+        ['Task manager',           'Search+Esc'],
+        ['Quick Settings',         'Alt+Shift+N'],
+        ['Powerwash (OOBE)',        'Ctrl+Alt+Shift+R'],
+        ['Recovery mode',          'Hold 1+4+='],
+        ['All shortcuts',          'Ctrl+Alt+/'],
+      ].map(([desc, key]) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;
+        padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.07);font-size:13px">
+        <span style="color:rgba(255,255,255,0.65)">${desc}</span>
+        <span style="color:#8ab4f8;font-family:var(--font-mono);font-size:11.5px">${key}</span>
+      </div>`).join('')}
+      <button onclick="document.getElementById('kbd-overlay').classList.remove('show')"
+        style="margin-top:16px;background:transparent;border:1px solid rgba(255,255,255,0.2);
+        border-radius:6px;color:#8ab4f8;padding:7px 16px;cursor:pointer;
+        font-family:var(--font-ui);font-size:13px">Close</button>
+    </div>
+  </div>
+
+  <!-- ══ TOAST ══ -->
+  <div id="toast"></div>
+
+</div><!-- /desktop -->
+
+<script src="system.js"></script><script src="auth.js"></script><script src="coi-serviceworker.js"></script><script src="owdos.js"></script>
+<script>
+// ── SESSION / USER STATE ──────────────────────────────────────────
+// Read from sessionStorage (set by OOBE when signing in)
+const storedUser = sessionStorage.getItem('cros_user');
+const storedEmail = sessionStorage.getItem('cros_email');
+if (storedUser)  document.getElementById('qs-name').textContent  = storedUser;
+if (storedEmail) document.getElementById('qs-email').textContent = storedEmail;
+if (storedUser) {
+  const avatarLetter = storedUser.charAt(0).toUpperCase();
+  document.getElementById('qs-avatar').textContent       = avatarLetter;
+  document.getElementById('lock-avatar-img').textContent  = avatarLetter;
+  document.getElementById('lock-username-lbl').textContent = storedUser;
+}
+
+// ── LOCK SCREEN CLOCK ────────────────────────────────────────────
+function updateLockClock() {
+  const now = new Date();
+  const lt  = document.getElementById('lock-time');
+  const ld  = document.getElementById('lock-date-lbl');
+  if (lt) lt.textContent = now.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+  if (ld) ld.textContent = now.toLocaleDateString([], { weekday:'long', month:'long', day:'numeric' });
+}
+setInterval(updateLockClock, 1000);
+updateLockClock();
+
+// ── LOCK / UNLOCK ────────────────────────────────────────────────
+function lockScreen() {
+  closeQuickSettings();
+  document.getElementById('lock-screen').classList.remove('hidden');
+  setTimeout(() => document.getElementById('lock-pw')?.focus(), 300);
+}
+
+function unlockScreen() {
+  document.getElementById('lock-screen').classList.add('hidden');
+  document.getElementById('lock-pw').value = '';
+  showToast('Unlocked');
+}
+
+function lockKeydown(e) {
+  if (e.key === 'Enter') unlockScreen();
+}
+
+function lockInput(input) {
+  // Any keystroke triggers unlock after a brief moment (PIN-style)
+  clearTimeout(window._lockInputTimer);
+  window._lockInputTimer = setTimeout(unlockScreen, 600);
+}
+
+// ── SIGN OUT ─────────────────────────────────────────────────────
+function signOut() {
+  showToast('Signing out...');
+  OWSystem.set({guest:false});
+  OWAuth.signOut();
+  setTimeout(() => { window.location.href = 'welcome.html'; }, 1200);
+}
+
+// ── POWERWASH ────────────────────────────────────────────────────
+function showPowerwash()  { document.getElementById('powerwash-overlay').classList.add('show'); }
+function hidePowerwash()  { document.getElementById('powerwash-overlay').classList.remove('show'); }
+function executePowerwash() {
+  document.getElementById('powerwash-overlay').innerHTML = `
+    <div class="pw-dialog" style="text-align:center">
+      <div style="font-size:48px;margin-bottom:16px">🔄</div>
+      <div style="font-size:20px;font-weight:500;margin-bottom:12px">Resetting OWDOS device…</div>
+      <div style="font-size:13px;color:var(--grey-600);margin-bottom:24px">
+        Please wait. Do not turn off your OWDOS device.
+      </div>
+      <div class="cros-spinner" style="margin:0 auto"></div>
+    </div>`;
+  setTimeout(() => { window.location.href = 'welcome.html'; }, 3500);
+}
+
+// ── TRIGGER POWERWASH FROM KEYBOARD ─────────────────────────────
+function triggerPowerwash() { showPowerwash(); }
+
+// ── LAUNCHER TABS ────────────────────────────────────────────────
+function switchTab(el, tab) {
+  document.querySelectorAll('.launcher-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  buildLauncher(document.getElementById('launcher-search').value);
+}
+
+// ── WALLPAPER (also used by settings panel) ──────────────────────
+function setWallpaper(value, el) {
+  document.getElementById('desktop').style.background = value;
+  OWDOS.wallpaper = value;
+  document.querySelectorAll('[onclick*="setWallpaper"]').forEach(x => {
+    x.style.borderColor = 'transparent';
+    x.style.borderWidth = '2px';
+  });
+  if (el) { el.style.borderColor = 'var(--accent)'; el.style.borderWidth = '3px'; }
+  showToast('Wallpaper updated');
+}
+
+// ── INIT ─────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  owdosInit();
+
+  // Reveal desktop after brief "boot" delay
+  document.getElementById('desktop').style.opacity = '0';
+  document.getElementById('desktop').style.transition = 'opacity 0.6s ease';
+  setTimeout(() => {
+    document.getElementById('desktop').style.opacity = '1';
+  }, 100);
+});
+
+// ── EXTRA KEYBOARD SHORTCUT: Ctrl+Alt+Shift+R → Powerwash ────────
+// (already handled in owdos.js, but keep override here too)
+
+// ── RECOVERY KEY COMBO: Hold 1+4+= ───────────────────────────────
+const recKeys = new Set();
+document.addEventListener('keydown', e => {
+  if (['1','4','='].includes(e.key)) {
+    recKeys.add(e.key);
+    if (recKeys.size === 3) {
+      showToast('Entering recovery mode...');
+      setTimeout(() => { window.location.href = 'recovery.html'; }, 800);
+    }
+  }
+  // Alt+Shift+N → Quick Settings
+  if (e.altKey && e.shiftKey && e.key === 'N') {
+    e.preventDefault(); toggleQuickSettings();
+  }
+  // Ctrl+Alt+/ → shortcuts overlay
+  if (e.ctrlKey && e.altKey && e.key === '/') {
+    e.preventDefault();
+    document.getElementById('kbd-overlay').classList.toggle('show');
+  }
+});
+document.addEventListener('keyup', e => recKeys.delete(e.key));
+</script>
 </body>
 </html>

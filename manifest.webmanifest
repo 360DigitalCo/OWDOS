@@ -1,15 +1,10 @@
 {
   "name": "OWDOS",
   "short_name": "OWDOS",
-  "start_url": "./",
+  "start_url": "index.html",
   "display": "fullscreen",
-  "background_color": "#1f204a",
-  "theme_color": "#1f204a",
-  "icons": [
-    {
-      "src": "favicon.svg",
-      "sizes": "64x64",
-      "type": "image/svg+xml"
-    }
-  ]
+  "background_color": "#090a0d",
+  "theme_color": "#111317",
+  "icons": [],
+  "description": "Ordbit Web Distro Operating System"
 }

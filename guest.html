@@ -1,1 +1,356 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guest session · OWDOS</title><link rel="stylesheet" href="system.css"><link rel="icon" href="favicon.svg"></head><body><main class="system-page"><div class="system-top"><a class="brand" href="welcome.html"><span class="brand-mark">OW</span><span class="brand-name"><b>OWDOS</b><small>Guest session</small></span></a></div><div class="system-main"><section class="light-card"><div class="eyebrow">GUEST MODE</div><h1>Use OWDOS as Guest</h1><p class="lead">Guest gets the full desktop without an account. Its files and app state are temporary to the browser session.</p><div class="choice-grid"><div class="choice" style="cursor:default"><span class="icon">G</span><b>Temporary profile</b><small>Nothing is attached to a Supabase account.</small></div><div class="choice" style="cursor:default"><span class="icon">□</span><b>Full desktop</b><small>Terminal, browser, Files, Store and system tools are available.</small></div></div><div class="button-row"><a class="button ghost" href="welcome.html">Back</a><button class="button primary" id="start">Start Guest session</button></div></section></div></main><script>start.onclick=()=>{sessionStorage.setItem('owdos:guest:id','guest-'+crypto.randomUUID());location.href='desktop.html?guest=1'}</script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OWDOS — Guest Session</title>
+<link rel="stylesheet" href="OWDOS.css">
+<style>
+html, body { background:#000; }
+#desktop {
+  width:100%; height:100%; position:relative; overflow:hidden;
+  background: linear-gradient(135deg,#37474f 0%,#263238 50%,#1a1f2e 100%);
+  font-family: var(--font-ui);
+}
+#guest-banner {
+  display:flex; align-items:center; gap:6px;
+  padding:0 10px; height:28px;
+  background:rgba(255,255,255,0.1); border-radius:14px;
+  font-size:12px; color:rgba(255,255,255,0.75); font-weight:500;
+  cursor:pointer; transition:background 0.15s; flex-shrink:0; white-space:nowrap;
+}
+#guest-banner:hover { background:rgba(255,255,255,0.18); }
+#guest-banner svg { width:14px; height:14px; opacity:0.8; }
+#exit-guest-btn {
+  padding:5px 14px;
+  background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.22);
+  border-radius:14px; font-size:12px; color:rgba(255,255,255,0.85); font-weight:500;
+  cursor:pointer; transition:background 0.15s; white-space:nowrap; font-family:var(--font-ui);
+}
+#exit-guest-btn:hover { background:rgba(255,255,255,0.22); color:#fff; }
+#quick-settings {
+  transition:opacity var(--dur-medium) var(--ease-decel), transform var(--dur-medium) var(--ease-decel);
+}
+#quick-settings:not(.open) { opacity:0; transform:scale(0.96) translateY(4px); pointer-events:none; }
+#exit-guest-overlay {
+  position:absolute; inset:0; z-index:9980;
+  background:rgba(0,0,0,0.72); display:none; align-items:center; justify-content:center;
+}
+#exit-guest-overlay.show { display:flex; }
+.exit-dialog {
+  background:#fff; border-radius:14px; padding:32px 36px;
+  max-width:420px; width:90%; box-shadow:0 24px 80px rgba(0,0,0,0.4);
+}
+.exit-dialog h2 { font-size:20px; font-weight:500; color:var(--grey-900); margin-bottom:10px; text-align:center; }
+.exit-dialog p { font-size:14px; color:var(--grey-700); line-height:1.65; text-align:center; }
+.exit-dialog .exit-warn {
+  background:#fff8e1; border:1px solid #ffe082; border-radius:8px;
+  padding:10px 14px; font-size:13px; color:#795548;
+  margin:14px 0 22px; display:flex; gap:8px; align-items:flex-start;
+}
+.exit-dialog-btns { display:flex; justify-content:flex-end; gap:10px; }
+#window-container { position:absolute; inset:0; padding-bottom:var(--shelf-h); pointer-events:none; }
+#window-container > * { pointer-events:all; }
+#powerwash-overlay {
+  position:absolute; inset:0; z-index:9970; background:rgba(0,0,0,0.75);
+  display:none; align-items:center; justify-content:center;
+}
+#powerwash-overlay.show { display:flex; }
+.pw-dialog { background:#fff; border-radius:14px; padding:28px 32px; max-width:440px; width:90%; box-shadow:0 24px 80px rgba(0,0,0,0.35); }
+.pw-dialog h2 { font-size:20px; font-weight:500; color:var(--grey-900); margin-bottom:12px; }
+.pw-dialog p { font-size:14px; color:var(--grey-700); line-height:1.65; margin-bottom:12px; }
+.pw-dialog .pw-warn { color:var(--red); font-weight:500; font-size:13px; margin-bottom:20px; }
+#kbd-overlay { position:absolute; inset:0; z-index:9960; background:rgba(0,0,0,0.82); display:none; align-items:center; justify-content:center; }
+#kbd-overlay.show { display:flex; }
+#overview-label { position:absolute; top:16px; left:50%; transform:translateX(-50%); color:rgba(255,255,255,0.6); font-size:13px; pointer-events:none; }
+#guest-info-strip {
+  position:absolute; top:0; left:0; right:0;
+  background:rgba(55,71,79,0.95); backdrop-filter:blur(12px);
+  border-bottom:1px solid rgba(255,255,255,0.1);
+  padding:10px 24px; display:flex; align-items:center; gap:14px;
+  z-index:500; transform:translateY(-100%);
+  transition:transform 0.35s cubic-bezier(0,0,0.2,1);
+}
+#guest-info-strip.show { transform:translateY(0); }
+#guest-info-strip svg { width:20px; height:20px; flex-shrink:0; color:rgba(255,255,255,0.7); }
+#guest-info-strip-text { font-size:13px; color:rgba(255,255,255,0.8); line-height:1.5; flex:1; }
+#guest-info-strip-close { color:rgba(255,255,255,0.5); font-size:18px; cursor:pointer; padding:4px; transition:color 0.15s; }
+#guest-info-strip-close:hover { color:#fff; }
+.notif-dot { position:absolute; top:6px; right:6px; width:8px; height:8px; border-radius:50%; background:var(--red); pointer-events:none; }
+</style>
+</head>
+<body>
+<div id="desktop">
+  <div id="guest-info-strip">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    <div id="guest-info-strip-text">
+      <strong style="color:#fff">You're browsing as a Guest.</strong>
+      Your activity on this OWDOS device won't be saved after you exit guest mode. Downloads will be deleted when you exit.
+    </div>
+    <div id="guest-info-strip-close" onclick="dismissGuestStrip()">✕</div>
+  </div>
+  <div id="overview"><div id="overview-label">All windows — click to switch, × to close</div></div>
+  <div id="window-container"></div>
+  <div id="notif-center">
+    <div class="nc-header">
+      <span class="nc-title">Notifications</span>
+      <span class="nc-clear-btn" onclick="clearNotifications()">Clear all</span>
+    </div>
+    <div id="notif-list" style="overflow-y:auto;flex:1" class="dark-scroll">
+      <div class="nc-date-lbl">Today</div>
+      <div class="notif-card" onclick="this.remove()">
+        <div class="notif-card-hdr">
+          <div class="notif-app-icon" style="background:#546e7a">👤</div>
+          <span class="notif-app-name">Guest session</span>
+          <span class="notif-time">just now</span>
+        </div>
+        <div class="notif-title">Browsing as Guest</div>
+        <div class="notif-body">Your browsing history and downloads will be deleted when you exit guest mode.</div>
+      </div>
+      <div class="notif-card" onclick="this.remove()">
+        <div class="notif-card-hdr">
+          <div class="notif-app-icon" style="background:#f9ab00">🔔</div>
+          <span class="notif-app-name">System</span>
+          <span class="notif-time">2m ago</span>
+        </div>
+        <div class="notif-title">OWDOS update available</div>
+        <div class="notif-body">Version 134.0.6998.170 is ready to install after restart.</div>
+      </div>
+    </div>
+  </div>
+  <div id="quick-settings">
+    <div class="qs-header">
+      <div class="qs-user">
+        <div class="qs-avatar" style="background:#546e7a;font-size:20px">👤</div>
+        <div>
+          <div class="qs-name">Guest</div>
+          <div class="qs-email">Not signed in · browsing as guest</div>
+        </div>
+      </div>
+    </div>
+    <div class="qs-tiles">
+      <div class="qs-tile on" onclick="toggleQsTile(this,'Wi-Fi on','Wi-Fi off')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1.42 9a16 16 0 0 1 21.16 0M5 12.55a11 11 0 0 1 14.08 0M10.54 16.1a6 6 0 0 1 2.92 0M12 20h.01"/></svg>
+        <span class="qs-tile-lbl">Wi-Fi</span>
+      </div>
+      <div class="qs-tile on" onclick="toggleQsTile(this,'Bluetooth on','Bluetooth off')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/></svg>
+        <span class="qs-tile-lbl">Bluetooth</span>
+      </div>
+      <div class="qs-tile" onclick="toggleQsTile(this,'Do not disturb on','Do not disturb off')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span class="qs-tile-lbl">Do not disturb</span>
+      </div>
+      <div class="qs-tile" onclick="toggleQsTile(this,'Dark mode on','Dark mode off')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <span class="qs-tile-lbl">Dark mode</span>
+      </div>
+      <div class="qs-tile" onclick="toggleQsTile(this,'Screen capture on','Screen capture off')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        <span class="qs-tile-lbl">Screen capture</span>
+      </div>
+      <div class="qs-tile" onclick="toggleQsTile(this,'Cast on','Cast off')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><path d="M2 12a9 9 0 0 1 8 8"/><path d="M2 16a5 5 0 0 1 4 4"/><line x1="2" y1="20" x2="2.01" y2="20"/></svg>
+        <span class="qs-tile-lbl">Cast</span>
+      </div>
+    </div>
+    <div class="qs-slider-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      <input type="range" class="qs-slider" min="0" max="100" value="80">
+    </div>
+    <div class="qs-slider-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      <input type="range" class="qs-slider" min="0" max="100" value="60">
+    </div>
+    <div class="qs-network-row">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"><path d="M1.42 9a16 16 0 0 1 21.16 0M5 12.55a11 11 0 0 1 14.08 0M10.54 16.1a6 6 0 0 1 2.92 0M12 20h.01"/></svg>
+      <span class="qs-network-name">OWDOS Wi-Fi</span>
+      <span class="qs-network-signal">Excellent ▸</span>
+    </div>
+    <div class="qs-footer">
+      <div class="qs-footer-btn" onclick="closeQuickSettings();openApp('settings')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </div>
+      <div class="qs-footer-btn" onclick="closeQuickSettings();showExitGuest()" style="color:#ef9a9a">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Exit guest
+      </div>
+    </div>
+  </div>
+  <div id="launcher">
+    <div id="launcher-search-wrap">
+      <input id="launcher-search" type="text" placeholder="Search apps and the web..." oninput="filterApps(this.value)" onkeydown="launcherKeydown(event)">
+    </div>
+    <div id="launcher-tabs">
+      <div class="launcher-tab active" onclick="switchTab(this)">All apps</div>
+      <div class="launcher-tab" onclick="switchTab(this)">Recent</div>
+    </div>
+    <div id="launcher-grid" class="dark-scroll"></div>
+  </div>
+  <div id="shelf">
+    <button class="shelf-btn" id="launcher-btn" title="Launcher" onclick="toggleLauncher()">
+      <span class="icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <circle cx="5" cy="5" r="1.5" fill="rgba(255,255,255,0.9)"/>
+          <circle cx="12" cy="5" r="1.5" fill="rgba(255,255,255,0.9)"/>
+          <circle cx="19" cy="5" r="1.5" fill="rgba(255,255,255,0.9)"/>
+          <circle cx="5" cy="12" r="1.5" fill="rgba(255,255,255,0.9)"/>
+          <circle cx="12" cy="12" r="1.5" fill="rgba(255,255,255,0.9)"/>
+          <circle cx="19" cy="12" r="1.5" fill="rgba(255,255,255,0.9)"/>
+          <circle cx="5" cy="19" r="1.5" fill="rgba(255,255,255,0.9)"/>
+          <circle cx="12" cy="19" r="1.5" fill="rgba(255,255,255,0.9)"/>
+          <circle cx="19" cy="19" r="1.5" fill="rgba(255,255,255,0.9)"/>
+        </svg>
+      </span>
+    </button>
+    <div id="shelf-pinned" style="display:flex;gap:2px;align-items:center"></div>
+    <div id="guest-banner" onclick="showExitGuest()" title="Exit guest session">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Guest
+    </div>
+    <div id="shelf-spacer"></div>
+    <div id="shelf-status">
+      <div class="status-chip" onclick="toggleNotifCenter()" title="Notifications" style="position:relative">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <div class="notif-dot"></div>
+      </div>
+      <div class="status-chip" title="Battery — 78%">
+        <svg width="18" height="16" viewBox="0 0 24 14" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="0.75" y="0.75" width="20.5" height="12.5" rx="2"/>
+          <line x1="22.5" y1="4.5" x2="22.5" y2="9.5" stroke-width="2.5" stroke-linecap="round"/>
+          <rect x="2" y="2" width="15" height="10" rx="1" fill="currentColor" stroke="none" opacity="0.75"/>
+        </svg>
+        <span>78%</span>
+      </div>
+      <div class="status-chip" title="Wi-Fi — OWDOS Wi-Fi">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1.42 9a16 16 0 0 1 21.16 0M5 12.55a11 11 0 0 1 14.08 0M10.54 16.1a6 6 0 0 1 2.92 0M12 20h.01"/></svg>
+      </div>
+      <div id="clock-widget" onclick="toggleQuickSettings()" title="Quick Settings">
+        <div id="clock-time">--:--</div>
+        <div id="clock-date">---</div>
+      </div>
+      <button id="exit-guest-btn" onclick="showExitGuest()">Exit guest</button>
+    </div>
+  </div>
+  <div id="ctx-menu">
+    <div class="ctx-item" onclick="openApp('browser')"><span class="ctx-ico">🌐</span> New New OW Browser window<span class="ctx-shortcut">Ctrl+N</span></div>
+    <div class="ctx-item" onclick="openApp('files')"><span class="ctx-ico">📁</span> Open Files</div>
+    <div class="ctx-item" onclick="openApp('terminal')"><span class="ctx-ico">💻</span> Terminal</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" onclick="openApp('wallpaper')"><span class="ctx-ico">🎨</span> Set wallpaper</div>
+    <div class="ctx-item" onclick="openApp('settings')"><span class="ctx-ico">⚙️</span> Settings</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" onclick="toggleOverview()"><span class="ctx-ico">🪟</span> Show all windows<span class="ctx-shortcut">F5</span></div>
+    <div class="ctx-item" onclick="showToast('Screenshot taken')"><span class="ctx-ico">📸</span> Take screenshot<span class="ctx-shortcut">Ctrl+F5</span></div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item danger" onclick="showExitGuest()"><span class="ctx-ico">👤</span> Exit guest session…</div>
+  </div>
+  <div id="exit-guest-overlay">
+    <div class="exit-dialog">
+      <div style="font-size:48px;text-align:center;margin-bottom:16px">👤</div>
+      <h2>Exit guest session?</h2>
+      <p>All windows will be closed and browsing data will be deleted.</p>
+      <div class="exit-warn">⚠️ <span>Your browsing history, cookies, downloads, and any files saved to this OWDOS device during this guest session will be permanently deleted.</span></div>
+      <div class="exit-dialog-btns">
+        <button class="goog-btn goog-btn-text" onclick="hideExitGuest()">Cancel</button>
+        <button class="goog-btn goog-btn-primary" onclick="executeExitGuest()">Exit guest</button>
+      </div>
+    </div>
+  </div>
+  <div id="powerwash-overlay">
+    <div class="pw-dialog">
+      <h2>Reset this OWDOS device?</h2>
+      <p>Powerwash removes all accounts, locally stored files, and settings from this OWDOS device.</p>
+      <p class="pw-warn">⚠ All data on this device will be permanently deleted.</p>
+      <div style="display:flex;justify-content:flex-end;gap:10px">
+        <button class="goog-btn goog-btn-text" onclick="hidePowerwash()">Cancel</button>
+        <button class="goog-btn goog-btn-primary" style="background:var(--red)" onclick="executePowerwash()">Powerwash</button>
+      </div>
+    </div>
+  </div>
+  <div id="kbd-overlay">
+    <div style="background:#2a2b30;border-radius:16px;padding:28px 36px;min-width:420px;max-width:600px;color:#fff;max-height:80vh;overflow-y:auto" class="dark-scroll">
+      <div style="font-size:18px;font-weight:500;margin-bottom:16px">OWDOS Keyboard Shortcuts</div>
+      <div id="kbd-list"></div>
+      <button onclick="document.getElementById('kbd-overlay').classList.remove('show')" style="margin-top:16px;background:transparent;border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#8ab4f8;padding:7px 16px;cursor:pointer;font-family:var(--font-ui);font-size:13px">Close</button>
+    </div>
+  </div>
+  <div id="toast"></div>
+</div>
+<script src="system.js"></script><script src="auth.js"></script><script src="coi-serviceworker.js"></script><script src="owdos.js"></script>
+<script>
+function lockScreen() { showExitGuest(); }
+function signOut() { showExitGuest(); }
+function unlockScreen() {}
+function dismissGuestStrip() { document.getElementById('guest-info-strip').classList.remove('show'); }
+function showExitGuest() { closeQuickSettings(); document.getElementById('exit-guest-overlay').classList.add('show'); }
+function hideExitGuest() { document.getElementById('exit-guest-overlay').classList.remove('show'); }
+function executeExitGuest() {
+  document.getElementById('exit-guest-overlay').innerHTML = `<div class="exit-dialog" style="text-align:center"><div style="font-size:48px;margin-bottom:16px">🧹</div><h2 style="margin-bottom:10px">Ending guest session</h2><p style="margin-bottom:20px;color:var(--grey-600)">Deleting browsing data and closing all windows…</p><div class="cros-spinner" style="margin:0 auto"></div></div>`;
+  setTimeout(() => { window.location.href = 'oobe.html'; }, 2400);
+}
+function showPowerwash() { document.getElementById('powerwash-overlay').classList.add('show'); }
+function hidePowerwash() { document.getElementById('powerwash-overlay').classList.remove('show'); }
+function triggerPowerwash() { showPowerwash(); }
+function executePowerwash() {
+  document.getElementById('powerwash-overlay').innerHTML = `<div class="pw-dialog" style="text-align:center"><div style="font-size:48px;margin-bottom:16px">🔄</div><div style="font-size:20px;font-weight:500;margin-bottom:12px">Resetting OWDOS device…</div><div style="font-size:13px;color:var(--grey-600);margin-bottom:24px">Please wait. Do not turn off your OWDOS device.</div><div class="cros-spinner" style="margin:0 auto"></div></div>`;
+  setTimeout(() => { window.location.href = 'oobe.html'; }, 3500);
+}
+function setWallpaper(value, el) {
+  document.getElementById('desktop').style.background = value;
+  OWDOS.wallpaper = value;
+  document.querySelectorAll('[onclick*="setWallpaper"]').forEach(x => { x.style.borderColor = 'transparent'; x.style.borderWidth = '2px'; });
+  if (el) { el.style.borderColor = 'var(--accent)'; el.style.borderWidth = '3px'; }
+  showToast('Wallpaper updated');
+}
+function switchTab(el) {
+  document.querySelectorAll('.launcher-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  buildLauncher(document.getElementById('launcher-search').value);
+}
+function buildKbdList() {
+  const shortcuts = [
+    ['Launcher','Alt+Shift+L'],['Overview','F5'],['Screenshot','Ctrl+F5'],
+    ['Partial screenshot','Ctrl+Shift+F5'],['Screen record','Ctrl+Alt+F5'],
+    ['Exit guest session','Ctrl+Q (×2)'],['New New OW Browser window','Ctrl+N'],
+    ['Close window','Ctrl+W'],['Minimize','Alt+−'],['Maximize','Alt+='],
+    ['Snap left / right','Alt+[ / Alt+]'],['Cycle windows','Alt+Tab'],
+    ['Settings','Alt+Shift+S'],['Files','Alt+Shift+M'],
+    ['Quick Settings','Alt+Shift+N'],['Powerwash (from OOBE)','Ctrl+Alt+Shift+R'],
+    ['Recovery mode','Hold 1+4+='],['All shortcuts','Ctrl+Alt+/'],
+  ];
+  const list = document.getElementById('kbd-list');
+  if (!list) return;
+  list.innerHTML = shortcuts.map(([desc,key]) => `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.07);font-size:13px"><span style="color:rgba(255,255,255,0.65)">${desc}</span><span style="color:#8ab4f8;font-family:var(--font-mono);font-size:11.5px">${key}</span></div>`).join('');
+}
+const recKeys = new Set();
+document.addEventListener('keydown', e => {
+  if (['1','4','='].includes(e.key)) {
+    recKeys.add(e.key);
+    if (recKeys.size === 3) { showToast('Entering recovery mode…'); setTimeout(() => { window.location.href = 'recovery.html'; }, 800); }
+  }
+  if (e.ctrlKey && e.key === 'q') {
+    if (window._ctrlQTimer) { clearTimeout(window._ctrlQTimer); window._ctrlQTimer = null; showExitGuest(); }
+    else { window._ctrlQTimer = setTimeout(() => { window._ctrlQTimer = null; }, 800); }
+    return;
+  }
+  if (e.altKey && e.shiftKey && e.key === 'N') { e.preventDefault(); toggleQuickSettings(); }
+  if (e.ctrlKey && e.altKey && e.key === '/') { e.preventDefault(); buildKbdList(); document.getElementById('kbd-overlay').classList.toggle('show'); }
+  if (e.ctrlKey && e.altKey && e.shiftKey && e.key === 'R') { e.preventDefault(); triggerPowerwash(); }
+  if (e.key === 'Escape') { document.getElementById('kbd-overlay').classList.remove('show'); hideExitGuest(); }
+});
+document.addEventListener('keyup', e => recKeys.delete(e.key));
+document.addEventListener('DOMContentLoaded', () => {
+  owdosInit();
+  const desktop = document.getElementById('desktop');
+  desktop.style.opacity = '0'; desktop.style.transition = 'opacity 0.5s ease';
+  setTimeout(() => { desktop.style.opacity = '1'; }, 80);
+  setTimeout(() => {
+    document.getElementById('guest-info-strip').classList.add('show');
+    setTimeout(() => dismissGuestStrip(), 6000);
+  }, 700);
+});
+</script>
+</body>
+</html>

@@ -1,17 +1,2 @@
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OWDOS</title><link rel="stylesheet" href="system.css"><link rel="icon" href="favicon.svg"></head>
-<body>
-<div class="firmware-page"><div class="firmware-mark">OW</div><div class="firmware-name">OWDOS</div><div class="firmware-sub">Ordbit Web Distro Operating System</div><div class="firmware-lines" id="lines"></div><div class="firmware-bar"><span id="bar"></span></div><button id="skip">Boot options · F12</button></div>
-<script type="module">
-import {loadDevice,saveDevice,redirect,currentSession} from './page.js';
-const d=loadDevice(), lines=document.querySelector('#lines'), bar=document.querySelector('#bar');
-const qs=new URLSearchParams(location.search);
-if(qs.get('loader')==='1'){location.replace('bootloader.html');}
-const steps=[['ROM','Checking firmware'],['BL1','Loading Ordbit bootloader'],['KERNEL','Verifying kernel'],['TPM','Initializing virtual TPM'],['VFS','Mounting local filesystem'],['INIT','Starting userspace']];
-let i=0;
-function tick(){if(i===steps.length){return currentSession().then(s=>{if(!d.oobeComplete)location.replace('oobe.html');else location.replace(s?'user.html':'welcome.html')});}const [a,b]=steps[i++];const row=document.createElement('div');row.innerHTML=`<span>${a}</span><b>OK</b>`;lines.append(row);bar.style.width=((i/steps.length)*100)+'%';setTimeout(tick,170)} 
-document.querySelector('#skip').onclick=()=>location.replace('bootloader.html');window.addEventListener('keydown',e=>{if(e.key==='F12'||e.key==='Escape'){e.preventDefault();location.replace('bootloader.html')}});
-tick();
-</script>
-</body></html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#000"><title>OWDOS</title><link rel="icon" href="owdos.png"><link rel="manifest" href="manifest.webmanifest"><link rel="stylesheet" href="owdos.css"></head><body style="background:#000"><main class="ow-boot"><div class="ow-boot-card"><div class="owdos-brand-mark">OW</div><h1>OWDOS</h1><p>Ordbit Web Distro Operating System</p><div class="ow-boot-progress"><span></span></div><small id="bootline">Initializing firmware</small><div class="ow-boot-links"><a href="bootloader.html">Bootloader</a><a href="recovery.html">Recovery</a></div></div></main><script src="system.js"></script><script>
+const lines=['Initializing firmware','Checking device state','Loading OWDOS kernel','Mounting local storage','Starting system services'];let i=0;const el=document.getElementById('bootline');const bar=document.querySelector('.ow-boot-progress span');const state=OWSystem.get();function go(){if(i<lines.length){el.textContent=lines[i];bar.style.width=((i+1)/lines.length*100)+'%';i++;setTimeout(go,260);return}if(new URLSearchParams(location.search).has('loader'))return location.href='bootloader.html';if(!state.oobe)return location.href='oobe.html';location.href='welcome.html';}go();</script><style>.ow-boot{min-height:100vh;display:grid;place-items:center;color:#fff;font-family:Inter,system-ui,sans-serif}.ow-boot-card{text-align:center;width:min(420px,88vw)}.ow-boot-card h1{margin:14px 0 4px;font-size:30px;letter-spacing:-.06em}.ow-boot-card p{margin:0;color:#8b9099;font-size:13px}.ow-boot-progress{height:3px;background:#202227;border-radius:99px;margin:34px 0 12px;overflow:hidden}.ow-boot-progress span{display:block;width:0;height:100%;background:#fff;transition:width .22s}.ow-boot-card small{color:#696e77;font:11px ui-monospace,monospace}.ow-boot-links{display:flex;justify-content:center;gap:18px;margin-top:28px}.ow-boot-links a{color:#787f8a;font-size:11px;text-decoration:none}.ow-boot-links a:hover{color:#fff}</style></body></html>

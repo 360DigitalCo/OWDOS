@@ -1,24 +1,609 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OWDOS Bootloader</title><link rel="stylesheet" href="system.css"><link rel="icon" href="favicon.svg"></head>
-<body>
-<div class="bootloader"><header><div><div class="firmware-word">OWDOS</div><div class="firmware-sub">Ordbit firmware</div></div><div class="firmware-device" id="facts"></div></header><main><div class="boot-title">Select boot target</div><div class="boot-sub">Arrow keys and Enter select. Recovery is always available with 1 + 4 + =.</div><div class="boot-menu" id="menu">
-<button data-go="boot">Boot OWDOS<span>Verified system image</span></button>
-<button data-go="recovery">Recovery mode<span>Repair, revert or Powerwash</span></button>
-<button data-go="devmode">Developer mode<span>Unsigned OWDOS development environment</span></button>
-<button data-go="admin">Admin console<span>Provision this device by ID</span></button>
-<button data-go="poweroff">Power off<span>Stop firmware</span></button>
-</div></main><footer>F12 bootloader · 1 + 4 + = recovery · Build <span id="build"></span></footer></div>
-<script type="module">
-import {loadDevice,getDeviceId,redirect,saveDevice,confirmAction} from './page.js';
-const d=loadDevice(), facts=document.querySelector('#facts');
-facts.textContent=`${d.hostname} · ${getDeviceId()}`;
-document.querySelector('#build').textContent=`FW ${d.firmwareVersion} · BL ${d.bootloaderVersion} · K ${d.kernelVersion} · TPM ${d.tpmVersion}`;
-const buttons=[...document.querySelectorAll('#menu button')];let selected=0;
-function mark(){buttons.forEach((b,i)=>b.classList.toggle('selected',i===selected))}
-function go(kind){if(kind==='boot')location.replace('index.html');if(kind==='recovery')location.replace('recovery.html');if(kind==='devmode')location.replace('devmode.html');if(kind==='admin')location.replace('admin.html');if(kind==='poweroff')document.body.innerHTML='<div class="powered-off">OWDOS is powered off.<br><span>Press R to restart.</span></div>'}
-buttons.forEach(b=>b.onclick=()=>go(b.dataset.go));mark();
-window.addEventListener('keydown',e=>{if(e.key==='ArrowDown'){selected=(selected+1)%buttons.length;mark()}if(e.key==='ArrowUp'){selected=(selected-1+buttons.length)%buttons.length;mark()}if(e.key==='Enter')go(buttons[selected].dataset.go);if(e.key.toLowerCase()==='r')go('recovery');if(e.key.toLowerCase()==='d')go('devmode');if(e.key.toLowerCase()==='a')go('admin')});
-const held=new Set();window.addEventListener('keydown',e=>{held.add(e.code);if(['Digit1','Digit4','Equal'].every(k=>held.has(k))){held.clear();go('recovery')}});window.addEventListener('keyup',e=>held.delete(e.code));
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OWDOS Bootloader</title>
+<link rel="stylesheet" href="OWDOS.css">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body {
+  width:100%; height:100%; overflow:hidden;
+  background: #000;
+  font-family: var(--font-mono);
+}
+
+/* ── BOOT SCREENS ── */
+.boot-screen { display:none; position:absolute; inset:0; }
+.boot-screen.active { display:flex; }
+
+/* ── FIRMWARE SPLASH ── */
+#screen-fw {
+  background:#000;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+}
+.fw-logo {
+  display:flex; flex-direction:column; align-items:center; gap:16px;
+  opacity:0; animation: fadeIn 0.6s 0.3s ease forwards;
+}
+.fw-logo-icon { font-size:72px; }
+.fw-model { font-size:18px; color:#aaa; font-family:var(--font-ui); font-weight:300; }
+.fw-version { font-size:11px; color:#444; font-family:var(--font-mono); margin-top:4px; }
+@keyframes fadeIn { to { opacity:1; } }
+.fw-progress {
+  position:absolute; bottom:60px; left:50%; transform:translateX(-50%);
+  width:200px;
+}
+.fw-progress-bar {
+  height:2px; background:#222; border-radius:1px; overflow:hidden;
+}
+.fw-progress-fill {
+  height:100%; background:#fff; border-radius:1px; width:0%;
+  transition: width 0.3s ease;
+}
+.fw-progress-pct { font-size:10px; color:#444; text-align:center; margin-top:6px; }
+
+/* ── VERIFIED BOOT (normal mode) ── */
+#screen-verified {
+  background:#000;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:0;
+}
+.vb-logo { opacity:0; animation: fadeIn 0.5s 0.2s ease forwards; margin-bottom:32px; }
+.vb-status-line {
+  font-size:11px; color:#333; font-family:var(--font-mono);
+  opacity:0; animation: fadeIn 0.3s ease forwards;
+}
+.vb-status-line.visible { opacity:1; }
+
+/* ── DEVELOPER MODE BOOT ── */
+#screen-devboot {
+  background:#000;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+}
+.devboot-wrap {
+  text-align:center;
+  max-width:520px;
+}
+.devboot-icon { font-size:64px; margin-bottom:20px; }
+.devboot-title {
+  font-size:22px; color:#fff;
+  font-family:var(--font-ui); font-weight:400;
+  margin-bottom:12px;
+}
+.devboot-body {
+  font-size:13px; color:#888; line-height:1.8;
+  font-family:var(--font-ui);
+  margin-bottom:24px;
+}
+.devboot-countdown {
+  font-size:14px; color:#f9ab00;
+  font-family:var(--font-ui);
+  margin-bottom:20px;
+}
+.devboot-keys { display:flex; flex-direction:column; gap:8px; align-items:center; }
+.devboot-key-row { display:flex; align-items:center; gap:8px; font-size:12px; color:#666; font-family:var(--font-ui); }
+.boot-key {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:34px; height:28px; padding:0 8px;
+  background:#1a1a1a; border:1px solid #333; border-radius:5px;
+  font-size:12px; color:#bbb; font-family:var(--font-mono);
+}
+.devboot-bar-wrap { margin-top:24px; width:300px; }
+.devboot-bar { height:3px; background:#222; border-radius:2px; overflow:hidden; }
+.devboot-bar-fill {
+  height:100%; background:#f9ab00; border-radius:2px;
+  width:100%;
+  transition: width 1s linear;
+}
+
+/* ── OS LOADING ── */
+#screen-loading {
+  background:#000;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:20px;
+}
+.loading-logo { opacity:0; animation: fadeIn 0.5s 0.1s ease forwards; }
+.loading-spinner {
+  width:32px; height:32px;
+  border:2.5px solid rgba(255,255,255,0.1);
+  border-top-color: rgba(255,255,255,0.7);
+  border-radius:50%;
+  animation: spin 0.9s linear infinite;
+}
+.loading-status { font-size:11px; color:#444; font-family:var(--font-mono); }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* ── SERIAL CONSOLE (Ctrl+Alt+T style) ── */
+#screen-console {
+  background:#000;
+  flex-direction:column;
+  padding:16px 20px;
+  font-size:12px; color:#33ff33;
+  overflow-y:auto;
+}
+.console-line { white-space:pre-wrap; line-height:1.6; }
+.console-line.dim  { color:#1a6e1a; }
+.console-line.warn { color:#f9ab00; }
+.console-line.err  { color:#ff4444; }
+.console-line.blue { color:#4285f4; }
+
+/* ── BOOTSCREEN SELECTOR (dev mode) ── */
+#screen-bootmenu {
+  background:#111;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:20px;
+}
+.bootmenu-title { font-size:18px; color:#fff; font-family:var(--font-ui); }
+.bootmenu-subtitle { font-size:12px; color:#666; font-family:var(--font-ui); }
+.bootmenu-items { display:flex; flex-direction:column; gap:8px; width:320px; }
+.bootmenu-item {
+  display:flex; align-items:center; gap:14px;
+  padding:14px 18px; border-radius:8px;
+  background:#1a1a1a; border:1.5px solid #2a2a2a;
+  cursor:pointer; font-family:var(--font-ui);
+  transition:background 0.15s, border-color 0.15s;
+}
+.bootmenu-item:hover       { background:#222; border-color:#444; }
+.bootmenu-item.selected    { border-color:#4285f4; background:#0a1a2e; }
+.bootmenu-item-icon        { font-size:24px; }
+.bootmenu-item-name        { font-size:14px; color:#fff; font-weight:500; }
+.bootmenu-item-desc        { font-size:11px; color:#666; margin-top:2px; }
+
+/* Toast */
+#toast {
+  position:fixed; bottom:20px; left:50%; transform:translateX(-50%) translateY(10px);
+  background:rgba(255,255,255,0.1); backdrop-filter:blur(8px);
+  color:#fff; padding:8px 18px; border-radius:22px;
+  font-size:13px; pointer-events:none; opacity:0;
+  transition:opacity 0.2s, transform 0.2s; z-index:9999;
+  font-family:var(--font-ui); white-space:nowrap;
+}
+#toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+/* Key hint bar */
+#boot-hint {
+  position:fixed; bottom:16px; right:20px;
+  font-size:10px; color:#333; font-family:var(--font-mono);
+  z-index:100; text-align:right; line-height:1.8;
+}
+</style>
+</head>
+<body><script src="system.js"></script>
+
+<!-- ══ FIRMWARE SPLASH ══ -->
+<div class="boot-screen active" id="screen-fw">
+  <div class="fw-logo">
+    <svg width="80" height="80" viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="50" fill="#4285f4"/>
+      <circle cx="50" cy="50" r="22" fill="#fff"/>
+      <path d="M50 0 A50 50 0 0 1 93.3 25 L72 37 A28 28 0 0 0 50 22Z" fill="#ea4335"/>
+      <path d="M93.3 25 A50 50 0 0 1 93.3 75 L72 63 A28 28 0 0 0 72 37Z" fill="#fbbc05"/>
+      <path d="M93.3 75 A50 50 0 0 1 6.7 75 L28 63 A28 28 0 0 0 72 63Z" fill="#34a853"/>
+    </svg>
+    <div class="fw-model">OWDOS</div>
+    <div class="fw-version">OWDOS-FW.1.0.0 · OWBoot 1.0</div>
+  </div>
+  <div class="fw-progress">
+    <div class="fw-progress-bar"><div class="fw-progress-fill" id="fw-fill"></div></div>
+    <div class="fw-progress-pct" id="fw-pct">Initializing firmware...</div>
+  </div>
+</div>
+
+<!-- ══ VERIFIED BOOT STATUS ══ -->
+<div class="boot-screen" id="screen-verified">
+  <svg class="vb-logo" width="72" height="72" viewBox="0 0 100 100">
+    <circle cx="50" cy="50" r="50" fill="#4285f4"/>
+    <circle cx="50" cy="50" r="22" fill="#fff"/>
+    <path d="M50 0 A50 50 0 0 1 93.3 25 L72 37 A28 28 0 0 0 50 22Z" fill="#ea4335"/>
+    <path d="M93.3 25 A50 50 0 0 1 93.3 75 L72 63 A28 28 0 0 0 72 37Z" fill="#fbbc05"/>
+    <path d="M93.3 75 A50 50 0 0 1 6.7 75 L28 63 A28 28 0 0 0 72 63Z" fill="#34a853"/>
+  </svg>
+  <div id="vb-log" style="font-size:10px;color:#1a3a1a;font-family:var(--font-mono);text-align:left;max-width:600px;"></div>
+</div>
+
+<!-- ══ DEVELOPER MODE WARNING ══ -->
+<div class="boot-screen" id="screen-devboot">
+  <div class="devboot-wrap">
+    <div class="devboot-icon">⚠️</div>
+    <div class="devboot-title">OS verification is OFF</div>
+    <div class="devboot-body">
+      Your OWDOS device is running in developer mode.<br>
+      Boot verification has been disabled. This OWDOS device will<br>
+      boot to OWDOS in <span id="devboot-sec">30</span> seconds.
+    </div>
+    <div class="devboot-keys">
+      <div class="devboot-key-row">
+        <span class="boot-key">Space</span> — Cancel developer mode (Powerwash)
+      </div>
+      <div class="devboot-key-row">
+        <span class="boot-key">Ctrl</span>+<span class="boot-key">D</span> — Boot OWDOS (skip timer)
+      </div>
+      <div class="devboot-key-row">
+        <span class="boot-key">Ctrl</span>+<span class="boot-key">U</span> — Boot from USB
+      </div>
+      <div class="devboot-key-row">
+        <span class="boot-key">Ctrl</span>+<span class="boot-key">L</span> — Boot legacy BIOS
+      </div>
+    </div>
+    <div class="devboot-bar-wrap">
+      <div class="devboot-bar"><div class="devboot-bar-fill" id="devboot-fill"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ DEVELOPER BOOT MENU ══ -->
+<div class="boot-screen" id="screen-bootmenu">
+  <div class="bootmenu-title">Select boot target</div>
+  <div class="bootmenu-subtitle">Use arrow keys and Enter, or click to select</div>
+  <div class="bootmenu-items">
+    <div class="bootmenu-item selected" id="bmenu-cros" onclick="selectBootItem(this,'OWDOS')">
+      <div class="bootmenu-item-icon">🌐</div>
+      <div>
+        <div class="bootmenu-item-name">OWDOS</div>
+        <div class="bootmenu-item-desc">Internal disk · /dev/nvme0n1p3</div>
+      </div>
+    </div>
+    <div class="bootmenu-item" id="bmenu-usb" onclick="selectBootItem(this,'USB')">
+      <div class="bootmenu-item-icon">💿</div>
+      <div>
+        <div class="bootmenu-item-name">USB / SD Card</div>
+        <div class="bootmenu-item-desc">No bootable device detected</div>
+      </div>
+    </div>
+    <div class="bootmenu-item" id="bmenu-legacy" onclick="selectBootItem(this,'Legacy')">
+      <div class="bootmenu-item-icon">🖥️</div>
+      <div>
+        <div class="bootmenu-item-name">Legacy BIOS</div>
+        <div class="bootmenu-item-desc">SeaBIOS · requires RW_LEGACY firmware</div>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:16px">
+    <button style="padding:8px 24px;background:#4285f4;color:#fff;border:none;border-radius:4px;
+      font-family:var(--font-ui);font-size:14px;cursor:pointer" onclick="bootSelected()">Boot</button>
+  </div>
+</div>
+
+<!-- ══ OS LOADING ══ -->
+<div class="boot-screen" id="screen-loading">
+  <svg class="loading-logo" width="56" height="56" viewBox="0 0 100 100">
+    <circle cx="50" cy="50" r="50" fill="#4285f4"/>
+    <circle cx="50" cy="50" r="22" fill="#fff"/>
+    <path d="M50 0 A50 50 0 0 1 93.3 25 L72 37 A28 28 0 0 0 50 22Z" fill="#ea4335"/>
+    <path d="M93.3 25 A50 50 0 0 1 93.3 75 L72 63 A28 28 0 0 0 72 63Z" fill="#34a853"/>
+  </svg>
+  <div class="loading-spinner"></div>
+  <div class="loading-status" id="loading-status">Starting OWDOS...</div>
+</div>
+
+<!-- ══ SERIAL CONSOLE ══ -->
+<div class="boot-screen" id="screen-console">
+  <div id="console-out"></div>
+</div>
+
+<!-- Hint bar -->
+<div id="boot-hint" id="boot-hint-bar">
+  Ctrl+Alt+T — console<br>
+  Ctrl+Alt+F2 — TTY2
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+// ── STATE ────────────────────────────────────────────────────────
+const params = new URLSearchParams(window.location.search);
+const devMode = params.get('devmode') === '1';
+
+let devbootTimer, devbootSecs = 30;
+let selectedBoot = 'OWDOS';
+let toastTimer;
+
+// ── TOAST ────────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ── SCREEN SWITCHER ──────────────────────────────────────────────
+function showScreen(id) {
+  document.querySelectorAll('.boot-screen').forEach(s => s.classList.remove('active'));
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
+}
+
+// ── FIRMWARE BOOT SEQUENCE ───────────────────────────────────────
+function startFirmwareBoot() {
+  const fill  = document.getElementById('fw-fill');
+  const pct   = document.getElementById('fw-pct');
+  const steps = [
+    [10,  'Initializing firmware...'],
+    [25,  'POST: Memory check...'],
+    [40,  'Loading EC firmware...'],
+    [55,  'Initializing TPM...'],
+    [70,  'Loading verified boot...'],
+    [85,  'Checking boot mode...'],
+    [100, devMode ? 'Developer mode detected.' : 'Verified boot OK.'],
+  ];
+  let si = 0;
+  const go = () => {
+    if (si >= steps.length) {
+      setTimeout(() => {
+        if (devMode) {
+          showScreen('screen-devboot');
+          startDevbootCountdown();
+        } else {
+          showScreen('screen-verified');
+          startVerifiedBoot();
+        }
+      }, 400);
+      return;
+    }
+    const [p, msg] = steps[si++];
+    if (fill) fill.style.width = p + '%';
+    if (pct)  pct.textContent  = msg;
+    setTimeout(go, 300);
+  };
+  setTimeout(go, 200);
+}
+
+// ── VERIFIED BOOT LOG ────────────────────────────────────────────
+function startVerifiedBoot() {
+  const log = document.getElementById('vb-log');
+  const lines = [
+    'Loading kernel from partition 2...',
+    'Verifying kernel signature (RSA8192 SHA512)...',
+    'Kernel signature OK.',
+    'Loading rootfs from partition 3...',
+    'Verifying rootfs hash (SHA256)...',
+    'Rootfs hash OK.',
+    'dm-verity: starting verification...',
+    'dm-verity: hash verified.',
+    'TPM PCR[0]: 0x000000000000000000000000',
+    'TPM PCR[1]: 0xa44f0f5a2a8e5e3b2c5d6e7f',
+    'TPM extend complete.',
+    'Handing off to kernel...',
+  ];
+  let i = 0;
+  const tick = () => {
+    if (i >= lines.length) {
+      setTimeout(() => {
+        showScreen('screen-loading');
+        startOSLoad();
+      }, 300);
+      return;
+    }
+    const d = document.createElement('div');
+    d.className = 'vb-status-line visible';
+    d.textContent = lines[i++];
+    log.appendChild(d);
+    setTimeout(tick, 120);
+  };
+  tick();
+}
+
+// ── OS LOAD ──────────────────────────────────────────────────────
+function startOSLoad() {
+  const status = document.getElementById('loading-status');
+  const stages = [
+    'Starting OWDOS...',
+    'Mounting filesystems...',
+    'Starting services...',
+    'Starting session_manager...',
+    'Starting login screen...',
+  ];
+  let i = 0;
+  const tick = () => {
+    if (i >= stages.length) {
+      setTimeout(() => { window.location.href = 'oobe.html'; }, 500);
+      return;
+    }
+    if (status) status.textContent = stages[i++];
+    setTimeout(tick, 600);
+  };
+  tick();
+}
+
+// ── DEVBOOT COUNTDOWN ────────────────────────────────────────────
+function startDevbootCountdown() {
+  devbootSecs = 30;
+  const secEl = document.getElementById('devboot-sec');
+  const fill  = document.getElementById('devboot-fill');
+  clearInterval(devbootTimer);
+  devbootTimer = setInterval(() => {
+    devbootSecs--;
+    if (secEl)  secEl.textContent = devbootSecs;
+    if (fill)   fill.style.width  = (devbootSecs / 30 * 100) + '%';
+    if (devbootSecs <= 0) {
+      clearInterval(devbootTimer);
+      bootOWDOS();
+    }
+  }, 1000);
+}
+
+function bootOWDOS() {
+  clearInterval(devbootTimer);
+  showScreen('screen-loading');
+  startOSLoad();
+}
+
+// ── BOOT MENU ────────────────────────────────────────────────────
+function selectBootItem(el, name) {
+  document.querySelectorAll('.bootmenu-item').forEach(x => x.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedBoot = name;
+}
+
+function bootSelected() {
+  if (selectedBoot === 'OWDOS') {
+    showScreen('screen-loading');
+    startOSLoad();
+  } else if (selectedBoot === 'USB') {
+    showToast('No bootable USB detected.');
+  } else if (selectedBoot === 'Legacy') {
+    showScreen('screen-console');
+    startLegacyBoot();
+  }
+}
+
+// ── LEGACY BOOT (SeaBIOS) ────────────────────────────────────────
+function startLegacyBoot() {
+  const out = document.getElementById('console-out');
+  if (!out) return;
+  const lines = [
+    { text:'SeaBIOS (version rel-1.14.0-0-g155821a1990b-prebuilt.qemu.org)', cls:'' },
+    { text:'Machine UUID                     ... 4f534336-4f43-4445-4244-4f4152445f49', cls:'dim' },
+    { text:'', cls:'' },
+    { text:'iPXE (http://ipxe.org) 00:02.0 C980 PCI2.10 PnP PMM+B7F9A9A0+B7EDA9A0 C980', cls:'dim' },
+    { text:'', cls:'' },
+    { text:'Booting from Hard Disk...', cls:'blue' },
+    { text:'GRUB 2.06 loading...', cls:'' },
+    { text:'', cls:'' },
+    { text:'No bootable OS found on legacy BIOS path.', cls:'err' },
+    { text:'Returning to OWDOS...', cls:'warn' },
+  ];
+  let i = 0;
+  const tick = () => {
+    if (i >= lines.length) {
+      setTimeout(() => { showScreen('screen-devboot'); startDevbootCountdown(); }, 1500);
+      return;
+    }
+    const d = document.createElement('div');
+    d.className = 'console-line' + (lines[i].cls ? ' ' + lines[i].cls : '');
+    d.textContent = lines[i++].text;
+    out.appendChild(d);
+    setTimeout(tick, 160);
+  };
+  tick();
+}
+
+// ── SERIAL CONSOLE (Ctrl+Alt+T) ──────────────────────────────────
+function showConsole() {
+  showScreen('screen-console');
+  const out = document.getElementById('console-out');
+  if (!out || out.children.length) return;
+  const d = document.createElement('div');
+  d.className = 'console-line';
+  d.textContent = 'Entering VT-2 console. Type "exit" to return to boot.';
+  out.appendChild(d);
+  const inpLine = document.createElement('div');
+  inpLine.className = 'console-line';
+  inpLine.innerHTML = '# ';
+  const inp = document.createElement('input');
+  inp.style.cssText = 'background:transparent;border:none;outline:none;color:#33ff33;font-family:var(--font-mono);font-size:12px;caret-color:#33ff33;width:400px;';
+  inp.onkeydown = consoleKey;
+  inpLine.appendChild(inp);
+  out.appendChild(inpLine);
+  setTimeout(() => inp.focus(), 50);
+}
+
+function consoleKey(e) {
+  if (e.key === 'Enter') {
+    const cmd = e.target.value.trim();
+    e.target.value = '';
+    const out = document.getElementById('console-out');
+    const r = document.createElement('div');
+    r.className = 'console-line';
+    r.textContent = '# ' + cmd;
+    out.insertBefore(r, e.target.parentNode);
+    if (cmd === 'exit') { showScreen(devMode ? 'screen-devboot' : 'screen-loading'); return; }
+    if (cmd) {
+      const resp = document.createElement('div');
+      resp.className = 'console-line dim';
+      resp.textContent = execConsoleCmd(cmd);
+      out.insertBefore(resp, e.target.parentNode);
+    }
+  }
+}
+
+function execConsoleCmd(cmd) {
+  const map = {
+    'help':      'exit  crossystem  dmesg  mosys  reboot  poweroff',
+    'crossystem':'cros_debug=1\nmainfw_type=developer\ndevsw_boot=1\ntpm_kernver=5',
+    'dmesg':     '[    0.000000] Booting paravirtualized kernel\n[    1.024018] EXT4-fs mounted\n[    3.001442] cros-ec-keyb ready',
+    'reboot':    'Rebooting...',
+    'poweroff':  'Powering off...',
+    'mosys':     'platform: name="Hatch"\nboard: vendor="Google" name="Hatch" version="rev4"',
+    'uname -a':  'Linux localhost 6.1.78 #1 SMP PREEMPT_DYNAMIC x86_64 GNU/Linux',
+  };
+  return map[cmd] || `bash: ${cmd}: command not found`;
+}
+
+// ── KEYBOARD SHORTCUTS ────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  const ctrl = e.ctrlKey, alt = e.altKey, shift = e.shiftKey;
+  const active = document.querySelector('.boot-screen.active');
+  const id = active ? active.id : '';
+
+  // Ctrl+D on devboot → skip countdown
+  if (ctrl && e.key === 'd' && id === 'screen-devboot') {
+    e.preventDefault(); clearInterval(devbootTimer);
+    bootOWDOS(); return;
+  }
+  // Ctrl+U → USB boot
+  if (ctrl && e.key === 'u' && id === 'screen-devboot') {
+    e.preventDefault();
+    showScreen('screen-bootmenu'); return;
+  }
+  // Ctrl+L → legacy
+  if (ctrl && e.key === 'l' && id === 'screen-devboot') {
+    e.preventDefault();
+    showScreen('screen-console'); startLegacyBoot(); return;
+  }
+  // Space → disable devmode (powerwash)
+  if (e.key === ' ' && id === 'screen-devboot') {
+    e.preventDefault(); clearInterval(devbootTimer);
+    showToast('Disabling developer mode — Powerwashing...');
+    setTimeout(() => { window.location.href = 'oobe.html'; }, 2000); return;
+  }
+  // Ctrl+Alt+T → console
+  if (ctrl && alt && e.key === 't') {
+    e.preventDefault(); showConsole(); return;
+  }
+  // Ctrl+Alt+F2 → TTY2
+  if (ctrl && alt && e.key === 'F2') {
+    e.preventDefault(); showConsole(); return;
+  }
+  // Esc → back to main / devboot
+  if (e.key === 'Escape') {
+    if (id === 'screen-console' || id === 'screen-bootmenu') {
+      if (devMode) { showScreen('screen-devboot'); startDevbootCountdown(); }
+      else         { showScreen('screen-loading'); startOSLoad(); }
+    }
+  }
+  // Arrow keys on boot menu
+  if (id === 'screen-bootmenu') {
+    const items = ['bmenu-cros','bmenu-usb','bmenu-legacy'];
+    const cur   = items.findIndex(x => document.getElementById(x)?.classList.contains('selected'));
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = items[(cur + 1) % items.length];
+      selectBootItem(document.getElementById(next), ['OWDOS','USB','Legacy'][(cur+1)%3]);
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prev = items[(cur - 1 + items.length) % items.length];
+      selectBootItem(document.getElementById(prev), ['OWDOS','USB','Legacy'][(cur-1+3)%3]);
+    }
+    if (e.key === 'Enter') bootSelected();
+  }
+});
+
+// ── INIT ─────────────────────────────────────────────────────────
+startFirmwareBoot();
 </script>
-</body></html>
+</body>
+</html>

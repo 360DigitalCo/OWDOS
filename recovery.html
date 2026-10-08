@@ -1,1 +1,696 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OWDOS Recovery</title><link rel="stylesheet" href="system.css"><link rel="icon" href="favicon.svg"></head><body><div class="recovery-page"><header class="recovery-top"><div class="recovery-brand"><span class="recovery-mark">!</span><div><b>OWDOS Recovery</b><small>System recovery environment</small></div></div><div class="recovery-code" id="facts"></div></header><main class="recovery-main"><div class="eyebrow">RECOVERY</div><h1>Recover this device</h1><p>Repair the local operating environment, return to the last good snapshot, or erase the machine. Your Supabase account is not removed by Powerwash.</p><div class="recovery-grid"><button id="repair"><b>Repair filesystem</b><span>Rebuild local system metadata.</span></button><button id="revert"><b>Revert</b><span>Restore the last saved device snapshot.</span></button><button id="dev"><b>Developer mode</b><span>Open the development environment.</span></button><button id="boot"><b>Return to bootloader</b><span>Restart firmware selection.</span></button><button id="pw" class="danger-card"><b>Powerwash</b><span>Erase OWDOS device data and restart OOBE.</span></button><button id="off"><b>Power off</b><span>Stop the OWDOS firmware.</span></button></div><div class="recovery-note">Hardware shortcut: press <kbd>1</kbd> + <kbd>4</kbd> + <kbd>=</kbd> together from any OWDOS page.</div></main></div><script type="module">import{loadDevice,getDeviceId,saveDevice,revertDevice,resetDevice,confirmAction,redirect}from'./page.js';const d=loadDevice();facts.textContent=`${d.hostname} · ${getDeviceId()} · K ${d.kernelVersion} · TPM ${d.tpmVersion}`;repair.onclick=()=>{localStorage.setItem('owdos:fs-repair',new Date().toISOString());alert('Filesystem metadata repaired.');};revert.onclick=()=>{if(revertDevice(d))location.reload();else alert('No snapshot is available.');};dev.onclick=()=>redirect('devmode.html');boot.onclick=()=>redirect('bootloader.html');pw.onclick=async()=>{if(await confirmAction('Powerwash this device?','This erases OWDOS local state, Guest state, and setup data. Supabase accounts remain intact.','Powerwash')){resetDevice();location.replace('oobe.html')}};off.onclick=()=>document.body.innerHTML='<div class="powered-off">OWDOS is powered off.<br><span>Restart from the bootloader.</span></div>';</</script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OWDOS Recovery</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;overflow:hidden;font-family:'Google Sans',Roboto,Arial,sans-serif;background:#e8eaed;}
+
+/* ── SCREENS ── */
+.screen{display:none;position:absolute;inset:0;flex-direction:column;}
+.screen.active{display:flex;}
+
+/* ── TOP BAR (chrome logo + language) ── */
+.top-bar{
+  height:52px;padding:0 24px;
+  display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid #c8c8c8;background:#f1f3f4;flex-shrink:0;
+}
+.top-bar-logo{display:flex;align-items:center;gap:10px;}
+.top-bar-logo img{width:28px;height:28px;}
+.top-bar-logo span{font-size:18px;font-weight:400;color:#3c4043;letter-spacing:-0.2px;}
+.top-bar-lang{
+  display:flex;align-items:center;gap:6px;
+  font-size:13px;color:#5f6368;cursor:pointer;
+  padding:4px 8px;border-radius:4px;transition:background 0.15s;
+}
+.top-bar-lang:hover{background:#e8eaed;}
+.top-bar-lang svg{width:14px;height:14px;}
+
+/* ── MAIN CONTENT AREA ── */
+.screen-body{
+  flex:1;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  padding:0 24px;
+}
+
+/* ── BOTTOM BAR ── */
+.bottom-bar{
+  padding:14px 24px;text-align:center;
+  border-top:1px solid #c8c8c8;background:#f1f3f4;
+  font-size:13px;color:#5f6368;flex-shrink:0;
+}
+.bottom-bar a{color:#1a73e8;text-decoration:none;}
+.bottom-bar a:hover{text-decoration:underline;}
+.bottom-bar .model{margin-top:4px;font-size:12px;color:#80868b;}
+
+/* ── SCREEN 1: MAIN RECOVERY (old style - image 1) ── */
+#screen-main{background:#f1f3f4;}
+.rec-exclaim{
+  font-size:80px;line-height:1;margin-bottom:20px;
+  /* Render as a gold ! like the real one */
+  color:#f9ab00;font-weight:900;font-style:normal;
+  text-shadow:none;
+}
+.rec-title{font-size:16px;color:#3c4043;text-align:center;line-height:1.7;margin-bottom:0;}
+
+/* ── SCREEN 2: INSERT USB (image 2 / new style) ── */
+#screen-insert{background:#f8f9fa;}
+.insert-title{font-size:20px;color:#3c4043;margin-bottom:32px;font-weight:400;}
+.insert-graphic{
+  display:flex;flex-direction:column;align-items:center;gap:0;
+  margin-bottom:32px;
+}
+/* USB port slots at top */
+.port-row{display:flex;gap:12px;margin-bottom:0;}
+.port-slot{
+  width:44px;height:8px;background:#9aa0a6;border-radius:2px;
+}
+.port-slot.sd{width:32px;}
+/* Blue arrow */
+.insert-arrow{
+  font-size:0;margin:6px 0;
+  width:0;height:0;
+  border-left:24px solid transparent;
+  border-right:24px solid transparent;
+  border-bottom:30px solid #1a73e8;
+}
+/* USB + SD card icons */
+.media-row{display:flex;gap:16px;align-items:flex-end;}
+.usb-icon{
+  display:flex;flex-direction:column;align-items:center;
+  position:relative;
+}
+.usb-body{
+  width:42px;height:60px;background:#e8eaed;
+  border:2px solid #9aa0a6;border-radius:4px 4px 2px 2px;
+  position:relative;display:flex;align-items:flex-start;justify-content:center;
+  padding-top:6px;
+}
+.usb-plug{
+  width:22px;height:10px;background:#9aa0a6;
+  border-radius:1px;
+}
+.sd-icon{
+  width:34px;height:44px;background:#e8eaed;
+  border:2px solid #9aa0a6;border-radius:4px 4px 4px 4px;
+  position:relative;overflow:hidden;
+}
+.sd-notch{
+  position:absolute;top:0;left:0;
+  width:8px;height:8px;
+  background:#f8f9fa;
+}
+/* SD card lines */
+.sd-lines{
+  position:absolute;top:8px;left:3px;right:3px;
+  display:flex;flex-direction:column;gap:3px;
+}
+.sd-line{height:2px;background:#bdc1c6;border-radius:1px;}
+
+/* ── SCREEN 3: TAB / CROSSYSTEM DATA ── */
+#screen-tab{background:#f1f3f4;flex-direction:column;}
+#tab-data-overlay{
+  position:absolute;top:52px;left:0;right:0;
+  background:rgba(0,0,0,0.75);
+  padding:12px 18px;
+  font-family:'Courier New',monospace;font-size:11px;color:#33ff33;
+  line-height:1.7;z-index:10;
+  display:none;
+  max-height:55%;overflow:hidden;
+}
+#tab-data-overlay.show{display:block;}
+
+/* ── SCREEN 4: DEVELOPER MODE CONFIRM ── */
+#screen-devmode{background:#f1f3f4;}
+.devmode-icon{font-size:56px;margin-bottom:16px;}
+.devmode-title{font-size:22px;font-weight:400;color:#3c4043;margin-bottom:12px;text-align:center;}
+.devmode-body{font-size:14px;color:#5f6368;line-height:1.75;margin-bottom:24px;text-align:center;max-width:520px;}
+.devmode-countdown{font-size:13px;color:#f9ab00;margin-bottom:20px;}
+.devmode-keys{display:flex;flex-direction:column;gap:8px;align-items:center;}
+.devmode-key-row{display:flex;align-items:center;gap:8px;font-size:13px;color:#5f6368;}
+.kbd{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:34px;height:26px;padding:0 8px;
+  background:#fff;border:1px solid #c8c8c8;border-radius:4px;
+  font-size:12px;color:#3c4043;font-family:'Courier New',monospace;
+  box-shadow:0 1px 2px rgba(0,0,0,0.1);
+}
+.devmode-bar{width:280px;height:3px;background:#e0e0e0;border-radius:2px;margin-top:20px;overflow:hidden;}
+.devmode-bar-fill{height:100%;background:#f9ab00;border-radius:2px;width:100%;transition:width 1s linear;}
+
+/* ── SCREEN 5: INSTALLING ── */
+#screen-installing{background:#f1f3f4;}
+.install-title{font-size:22px;font-weight:400;color:#3c4043;margin-bottom:8px;}
+.install-sub{font-size:14px;color:#5f6368;margin-bottom:28px;}
+.install-stages{width:400px;}
+.stage-row{display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid #e0e0e0;font-size:14px;}
+.stage-row:last-child{border-bottom:none;}
+.stage-ico{width:22px;text-align:center;font-size:16px;}
+.stage-name{flex:1;color:#3c4043;}
+.stage-status{font-size:12px;color:#9aa0a6;}
+.stage-done{color:#1e8e3e;}
+.stage-active{color:#1a73e8;}
+.prog-bar{height:4px;background:#e0e0e0;border-radius:2px;width:360px;margin-top:20px;overflow:hidden;}
+.prog-fill{height:100%;background:#1a73e8;border-radius:2px;width:0%;transition:width 0.3s;}
+.prog-label{font-size:12px;color:#9aa0a6;margin-top:8px;}
+
+/* ── SCREEN 6: COMPLETE ── */
+#screen-complete{background:#f1f3f4;}
+.complete-icon{font-size:64px;margin-bottom:16px;}
+.complete-title{font-size:22px;font-weight:400;color:#3c4043;margin-bottom:8px;}
+.complete-body{font-size:14px;color:#5f6368;text-align:center;margin-bottom:24px;line-height:1.7;}
+
+/* ── SCREEN 7: DEV RECOVERY TERMINAL ── */
+#screen-devterm{background:#000;font-family:'Courier New',monospace;}
+#devterm-out{padding:16px 20px;font-size:12px;color:#33ff33;line-height:1.7;overflow-y:auto;flex:1;}
+.dt-line{white-space:pre-wrap;}
+.dt-dim{color:#1a6e1a;}
+.dt-warn{color:#f9ab00;}
+.dt-err{color:#ff4444;}
+
+/* ── BUTTONS ── */
+.rec-btn{
+  padding:10px 28px;border-radius:4px;font-size:14px;font-weight:500;
+  cursor:pointer;border:none;font-family:inherit;transition:background 0.15s,box-shadow 0.15s;
+}
+.rec-btn-primary{background:#1a73e8;color:#fff;}
+.rec-btn-primary:hover{background:#1557b0;box-shadow:0 1px 3px rgba(0,0,0,0.2);}
+.rec-btn-secondary{background:#fff;color:#3c4043;border:1px solid #c8c8c8;}
+.rec-btn-secondary:hover{background:#f1f3f4;}
+.rec-btn-danger{background:#d93025;color:#fff;}
+.rec-btn-danger:hover{background:#b31412;}
+.btn-row{display:flex;gap:12px;margin-top:24px;}
+
+/* ── HOLD KEY INDICATOR ── */
+#hold-indicator{
+  position:fixed;bottom:80px;left:50%;transform:translateX(-50%);
+  display:flex;gap:6px;align-items:center;
+  background:rgba(0,0,0,0.65);border-radius:8px;
+  padding:8px 16px;font-size:12px;color:#9aa0a6;
+  pointer-events:none;opacity:0;transition:opacity 0.2s;
+  font-family:'Courier New',monospace;
+}
+#hold-indicator.show{opacity:1;}
+.hk{
+  padding:2px 8px;background:#2a2a2a;border:1px solid #555;
+  border-radius:4px;font-size:11px;color:#bbb;
+  transition:background 0.15s,color 0.15s;
+}
+.hk.on{background:#1a73e8;color:#fff;border-color:#1a73e8;}
+
+/* Toast */
+#toast{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(10px);
+  background:rgba(32,33,36,0.92);color:#fff;padding:9px 20px;border-radius:24px;
+  font-size:13px;pointer-events:none;opacity:0;
+  transition:opacity 0.2s,transform 0.2s;z-index:9999;white-space:nowrap;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body><script src="system.js"></script>
+
+<!-- ── SCREEN 1: MAIN ── -->
+<div class="screen active" id="screen-main">
+  <div class="top-bar">
+    <div class="top-bar-logo">
+      <img src="owdos.png" alt="chrome">
+      <span>chrome</span>
+    </div>
+    <div class="top-bar-lang">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      English
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+  </div>
+  <div class="screen-body">
+    <div class="rec-exclaim">!</div>
+    <div class="rec-title">
+      OWDOS is missing or damaged.<br>
+      Please insert a recovery USB stick or SD card.
+    </div>
+  </div>
+  <div class="bottom-bar">
+    For help visit <a href="#" onclick="return false">http://google.com/owdos/recovery</a>
+    <div class="model" id="main-model-lbl">Model  HATCH-YWTQ B2A-A3A-A</div>
+  </div>
+</div>
+
+<!-- ── TAB DATA OVERLAY (shown over main when Tab pressed) ── -->
+<div id="tab-data-overlay"></div>
+
+<!-- ── SCREEN 2: INSERT USB ── -->
+<div class="screen" id="screen-insert">
+  <div class="top-bar">
+    <div class="top-bar-logo">
+      <img src="owdos.png" alt="chrome">
+      <span>chrome</span>
+    </div>
+    <div class="top-bar-lang">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      English
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+  </div>
+  <div class="screen-body">
+    <div class="insert-title">Please insert a recovery USB stick or SD card.</div>
+    <div class="insert-graphic">
+      <!-- port slots at top -->
+      <div class="port-row">
+        <div class="port-slot"></div>
+        <div class="port-slot sd"></div>
+      </div>
+      <!-- blue arrow pointing up -->
+      <div style="margin:10px 0">
+        <svg width="48" height="52" viewBox="0 0 48 52">
+          <polygon points="24,0 48,28 33,28 33,52 15,52 15,28 0,28" fill="#1a73e8"/>
+        </svg>
+      </div>
+      <!-- USB + SD card -->
+      <div class="media-row">
+        <div class="usb-icon">
+          <div class="usb-body">
+            <div class="usb-plug"></div>
+          </div>
+        </div>
+        <div class="sd-icon">
+          <div class="sd-notch"></div>
+          <div class="sd-lines">
+            <div class="sd-line"></div><div class="sd-line"></div>
+            <div class="sd-line"></div><div class="sd-line"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="rec-btn rec-btn-primary" onclick="showScreen('screen-installing');startInstall()">Simulate USB detected</button>
+      <button class="rec-btn rec-btn-secondary" onclick="showScreen('screen-main')">Cancel</button>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    For help visit <a href="#" onclick="return false">https://google.com/owdos/recovery</a>
+    <div class="model">Model  HATCH-YWTQ B2A-A3A-A</div>
+  </div>
+</div>
+
+<!-- ── SCREEN 3: INSTALLING ── -->
+<div class="screen" id="screen-installing">
+  <div class="top-bar">
+    <div class="top-bar-logo">
+      <img src="owdos.png" alt="chrome">
+      <span>chrome</span>
+    </div>
+    <div class="top-bar-lang">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      English
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+  </div>
+  <div class="screen-body">
+    <div class="install-title" id="install-title">Verifying recovery media</div>
+    <div class="install-sub" id="install-sub">Please wait. Do not remove the USB drive.</div>
+    <div class="install-stages">
+      <div class="stage-row" id="stage-verify">
+        <div class="stage-ico">⏳</div>
+        <div class="stage-name">Verifying media</div>
+        <div class="stage-status stage-active">In progress...</div>
+      </div>
+      <div class="stage-row" id="stage-erase">
+        <div class="stage-ico">○</div>
+        <div class="stage-name">Erasing internal storage</div>
+        <div class="stage-status">Waiting</div>
+      </div>
+      <div class="stage-row" id="stage-write">
+        <div class="stage-ico">○</div>
+        <div class="stage-name">Writing OWDOS image</div>
+        <div class="stage-status">Waiting</div>
+      </div>
+      <div class="stage-row" id="stage-verify2">
+        <div class="stage-ico">○</div>
+        <div class="stage-name">Verifying installation</div>
+        <div class="stage-status">Waiting</div>
+      </div>
+    </div>
+    <div class="prog-bar"><div class="prog-fill" id="prog-fill"></div></div>
+    <div class="prog-label" id="prog-label">0%</div>
+  </div>
+  <div class="bottom-bar">
+    For help visit <a href="#" onclick="return false">https://google.com/owdos/recovery</a>
+    <div class="model">Model  HATCH-YWTQ B2A-A3A-A</div>
+  </div>
+</div>
+
+<!-- ── SCREEN 4: COMPLETE ── -->
+<div class="screen" id="screen-complete">
+  <div class="top-bar">
+    <div class="top-bar-logo">
+      <img src="owdos.png" alt="chrome">
+      <span>chrome</span>
+    </div>
+    <div class="top-bar-lang" style="visibility:hidden">English</div>
+  </div>
+  <div class="screen-body">
+    <div class="complete-icon">✅</div>
+    <div class="complete-title">Recovery complete</div>
+    <div class="complete-body">
+      OWDOS has been successfully restored.<br>
+      Remove the USB drive and your OWDOS device will restart.
+    </div>
+    <div class="btn-row">
+      <button class="rec-btn rec-btn-primary" onclick="window.location.href='oobe.html'">Restart → Setup</button>
+      <button class="rec-btn rec-btn-secondary" onclick="showScreen('screen-main')">Restart Recovery</button>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    For help visit <a href="#" onclick="return false">https://google.com/owdos/recovery</a>
+    <div class="model">Model  HATCH-YWTQ B2A-A3A-A</div>
+  </div>
+</div>
+
+<!-- ── SCREEN 5: DEVELOPER MODE CONFIRM ── -->
+<div class="screen" id="screen-devmode">
+  <div class="top-bar">
+    <div class="top-bar-logo">
+      <img src="owdos.png" alt="chrome">
+      <span>chrome</span>
+    </div>
+    <div class="top-bar-lang">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      English
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+  </div>
+  <div class="screen-body">
+    <div class="devmode-icon">⚠️</div>
+    <div class="devmode-title">Enable developer mode?</div>
+    <div class="devmode-body">
+      Developer mode removes verification and allows unsigned software,<br>
+      USB boot, and root shell access.<br><br>
+      <strong style="color:#f9ab00">WARNING:</strong> Enabling developer mode will
+      <strong>Powerwash</strong> your OWDOS device.<br>All locally stored data will be permanently deleted.
+    </div>
+    <div class="devmode-countdown">
+      Returning to normal mode in <span id="devmode-timer">30</span>s...
+    </div>
+    <div class="devmode-keys">
+      <div class="devmode-key-row"><span class="kbd">Space</span> — Cancel (return to normal mode)</div>
+      <div class="devmode-key-row"><span class="kbd">Enter</span> — Enable developer mode</div>
+    </div>
+    <div class="devmode-bar"><div class="devmode-bar-fill" id="devmode-bar-fill"></div></div>
+    <div class="btn-row">
+      <button class="rec-btn rec-btn-secondary" onclick="cancelDevMode()">Cancel</button>
+      <button class="rec-btn rec-btn-danger" onclick="confirmDevMode()">Enable developer mode</button>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    For help visit <a href="#" onclick="return false">https://google.com/owdos/recovery</a>
+    <div class="model">Model  HATCH-YWTQ B2A-A3A-A</div>
+  </div>
+</div>
+
+<!-- ── SCREEN 6: ENABLING DEV MODE ── -->
+<div class="screen" id="screen-devenabling">
+  <div class="top-bar">
+    <div class="top-bar-logo">
+      <img src="owdos.png" alt="chrome">
+      <span>chrome</span>
+    </div>
+    <div class="top-bar-lang" style="visibility:hidden">English</div>
+  </div>
+  <div class="screen-body">
+    <div style="font-size:52px;margin-bottom:16px">🔓</div>
+    <div class="install-title">Enabling developer mode</div>
+    <div class="install-sub">Erasing internal storage and removing boot verification...</div>
+    <div class="prog-bar"><div class="prog-fill" id="devmode-prog-fill"></div></div>
+    <div class="prog-label" id="devmode-prog-label">Preparing...</div>
+  </div>
+  <div class="bottom-bar">
+    For help visit <a href="#" onclick="return false">https://google.com/owdos/recovery</a>
+    <div class="model">Model  HATCH-YWTQ B2A-A3A-A</div>
+  </div>
+</div>
+
+<!-- ── SCREEN 7: DEV RECOVERY TERMINAL ── -->
+<div class="screen" id="screen-devterm">
+  <div id="devterm-out"></div>
+</div>
+
+<!-- ── HOLD INDICATOR ── -->
+<div id="hold-indicator">
+  Hold for developer recovery:
+  <span class="hk" id="hk1">1</span>
+  <span style="color:#555">+</span>
+  <span class="hk" id="hk4">4</span>
+  <span style="color:#555">+</span>
+  <span class="hk" id="hkeq">=</span>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── STATE ──
+let devTimer, devSecs = 30;
+let toastTimer;
+const held = new Set();
+const CROSSYSTEM_DATA = [
+  'recovery_reason         = 0x02  0x00  (recovery button pressed)',
+  'Vb_raw: 60 10 00 00 00 02 00 20 00 fe ff 00 00 ff ff 1e',
+  'dev_boot_usb            = 0',
+  'dev_boot_legacy         = 0',
+  'default_boot            = 0',
+  'boot_signed_only        = 0',
+  'boot_fastboot_full_cap  = 0',
+  'TPM: fwver=0x00010001 kernver=0x00010005',
+  'vb_flags: 0x00000000000000',
+  'vb_rootkey: b361e72e4e739e974c46e5dd1b1412775f73826d',
+  'vb_recovery_key: 73548eec796f801be5d62992ac07efc1155779fc',
+  'read-only firmware id: OWDOS-FW.1.0.0',
+  'active firmware id:    OWDOS-FW.1.0.0',
+  'TPM state: v=1 failed_tries=0 max_tries=200',
+];
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
+}
+
+let toastT;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ── INSTALL SEQUENCE ──
+function startInstall() {
+  const fill = document.getElementById('prog-fill');
+  const label = document.getElementById('prog-label');
+  const title = document.getElementById('install-title');
+  const sub   = document.getElementById('install-sub');
+  const stages = [
+    { id:'stage-verify',  pct:20,  t:'Verifying recovery media',   s:'Checking SHA-256 signature...',            ico:'🔍', done:'Done' },
+    { id:'stage-erase',   pct:45,  t:'Erasing internal storage',   s:'Securely erasing 128 GB eMMC...',          ico:'🗑️', done:'Done' },
+    { id:'stage-write',   pct:82,  t:'Writing OWDOS image',     s:'Writing 4.2 GB image to disk...',          ico:'💾', done:'Done' },
+    { id:'stage-verify2', pct:100, t:'Verifying installation',      s:'Checking data integrity...',               ico:'✅', done:'Done' },
+  ];
+  let si = 0;
+  function next() {
+    if (si >= stages.length) { setTimeout(() => showScreen('screen-complete'), 600); return; }
+    const s = stages[si];
+    const row = document.getElementById(s.id);
+    if (row) {
+      row.querySelector('.stage-ico').textContent = '⏳';
+      row.querySelector('.stage-status').textContent = 'In progress...';
+      row.querySelector('.stage-status').className = 'stage-status stage-active';
+    }
+    let cur = si === 0 ? 0 : stages[si-1].pct;
+    if (title) title.textContent = s.t;
+    if (sub)   sub.textContent   = s.s;
+    const step = () => {
+      cur = Math.min(cur + 0.7, s.pct);
+      if (fill)  fill.style.width  = cur + '%';
+      if (label) label.textContent = Math.round(cur) + '%';
+      if (cur < s.pct) { requestAnimationFrame(step); return; }
+      if (row) {
+        row.querySelector('.stage-ico').textContent = s.ico;
+        row.querySelector('.stage-status').textContent = s.done;
+        row.querySelector('.stage-status').className = 'stage-status stage-done';
+      }
+      si++;
+      setTimeout(next, 500);
+    };
+    setTimeout(step, 350);
+  }
+  next();
+}
+
+// ── DEV MODE COUNTDOWN ──
+function startDevCountdown() {
+  devSecs = 30;
+  clearInterval(devTimer);
+  const fill = document.getElementById('devmode-bar-fill');
+  devTimer = setInterval(() => {
+    devSecs--;
+    const el = document.getElementById('devmode-timer');
+    if (el) el.textContent = devSecs;
+    if (fill) fill.style.width = (devSecs / 30 * 100) + '%';
+    if (devSecs <= 0) { clearInterval(devTimer); cancelDevMode(); }
+  }, 1000);
+}
+function cancelDevMode() {
+  clearInterval(devTimer);
+  showScreen('screen-main');
+  showToast('Developer mode cancelled.');
+}
+function confirmDevMode() {
+  clearInterval(devTimer);
+  showScreen('screen-devenabling');
+  const fill  = document.getElementById('devmode-prog-fill');
+  const label = document.getElementById('devmode-prog-label');
+  const steps = [[15,'Transitioning...'],[35,'Erasing stateful partition...'],[60,'Removing TPM ownership...'],[80,'Clearing verified boot state...'],[100,'Developer mode enabled. Rebooting...']];
+  let si = 0;
+  const go = () => {
+    if (si >= steps.length) { setTimeout(() => { window.location.href = 'bootloader.html?devmode=1'; }, 800); return; }
+    const [pct,msg] = steps[si++];
+    if (fill)  fill.style.width  = pct + '%';
+    if (label) label.textContent = msg;
+    setTimeout(go, pct === 100 ? 600 : 900);
+  };
+  setTimeout(go, 400);
+}
+
+// ── DEV RECOVERY TERMINAL (1+4+=) ──
+function showDevTerm() {
+  showScreen('screen-devterm');
+  const out = document.getElementById('devterm-out');
+  out.innerHTML = '';
+  const lines = [
+    { t:'OWDOS Developer Recovery', c:'' },
+    { t:'================================', c:'dt-dim' },
+    { t:'', c:'' },
+    { t:'WARNING: developer mode is not enabled.', c:'dt-warn' },
+    { t:'This mode is intended for advanced users only.', c:'dt-warn' },
+    { t:'', c:'' },
+    { t:'Board: HATCH', c:'' },
+    { t:'Firmware: OWDOS-FW.1.0.0', c:'' },
+    { t:'EC: hatch_v1.0.1288-54253cc27', c:'' },
+    { t:'BIOS: OWBoot 1.0-1535-gf68e63f4e9', c:'' },
+    { t:'', c:'' },
+    { t:'Detected recovery reason: 0x02 (recovery button pressed)', c:'dt-warn' },
+    { t:'', c:'' },
+    { t:'Options:', c:'' },
+    { t:'  [Ctrl+D]  Enable developer mode', c:'' },
+    { t:'  [Ctrl+U]  Boot from USB (dev mode only)', c:'dt-dim' },
+    { t:'  [Ctrl+L]  Boot legacy BIOS (dev mode only)', c:'dt-dim' },
+    { t:'  [Space]   Cancel — return to recovery', c:'' },
+    { t:'', c:'' },
+    { t:'recovery> ', c:'' },
+  ];
+  let i = 0;
+  const print = () => {
+    if (i >= lines.length) {
+      const cursor = document.createElement('span');
+      cursor.style.cssText = 'display:inline-block;width:8px;height:13px;background:#33ff33;animation:blink 1s step-end infinite;vertical-align:middle;';
+      out.lastChild.appendChild(cursor);
+      const inp = document.createElement('input');
+      inp.style.cssText = 'background:transparent;border:none;outline:none;color:#33ff33;font-family:"Courier New",monospace;font-size:12px;caret-color:#33ff33;width:320px;';
+      inp.onkeydown = termKey;
+      out.lastChild.appendChild(inp);
+      setTimeout(() => inp.focus(), 50);
+      return;
+    }
+    const d = document.createElement('div');
+    d.className = 'dt-line' + (lines[i].c ? ' ' + lines[i].c : '');
+    d.textContent = lines[i++].t;
+    out.appendChild(d);
+    setTimeout(print, 35);
+  };
+  print();
+  // add blink keyframes
+  if (!document.getElementById('blink-style')) {
+    const st = document.createElement('style');
+    st.id = 'blink-style';
+    st.textContent = '@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}';
+    document.head.appendChild(st);
+  }
+}
+
+function termKey(e) {
+  const out = document.getElementById('devterm-out');
+  if (e.key === 'Enter') {
+    const cmd = e.target.value.trim(); e.target.value = '';
+    const r = document.createElement('div'); r.className = 'dt-line';
+    r.textContent = 'recovery> ' + cmd; out.insertBefore(r, e.target.parentNode);
+    if (cmd) {
+      const resp = document.createElement('div'); resp.className = 'dt-line dt-dim';
+      resp.textContent = termExec(cmd); out.insertBefore(resp, e.target.parentNode);
+    }
+  }
+  if (e.ctrlKey && e.key === 'd') { e.preventDefault(); showScreen('screen-devmode'); startDevCountdown(); }
+  if (e.key === ' ') { e.preventDefault(); showScreen('screen-insert'); }
+}
+function termExec(cmd) {
+  const m = { help:'Available: help, tpm_status, vbutil_key, crossystem, reboot, poweroff', tpm_status:'TPM: enabled, owned\nFirmware version: 1.0.6\nSpec level: 2.0', crossystem:CROSSYSTEM_DATA.join('\n'), reboot:'Rebooting...', poweroff:'Powering off...' };
+  return m[cmd] || 'Unknown command: ' + cmd + ". Type 'help' for options.";
+}
+
+// ── TAB: show crossystem data overlay ──
+function showTabData() {
+  const overlay = document.getElementById('tab-data-overlay');
+  if (overlay.classList.contains('show')) { overlay.classList.remove('show'); return; }
+  overlay.innerHTML = CROSSYSTEM_DATA.map(l => `<div style="font-family:'Courier New',monospace;font-size:11px;color:#33ff33;line-height:1.7;background:rgba(0,0,0,0.75);padding:0 2px">${l}</div>`).join('');
+  overlay.classList.add('show');
+}
+
+// ── KEYBOARD ──
+document.addEventListener('keydown', e => {
+  held.add(e.key);
+  document.getElementById('hk1').classList.toggle('on', held.has('1'));
+  document.getElementById('hk4').classList.toggle('on', held.has('4'));
+  document.getElementById('hkeq').classList.toggle('on', held.has('='));
+  if (held.has('1') || held.has('4') || held.has('=')) document.getElementById('hold-indicator').classList.add('show');
+
+  if (held.has('1') && held.has('4') && held.has('=')) { e.preventDefault(); showDevTerm(); return; }
+
+  const active = document.querySelector('.screen.active')?.id;
+
+  // Tab → show crossystem data on main/insert screens
+  if (e.key === 'Tab' && (active === 'screen-main' || active === 'screen-insert')) { e.preventDefault(); showTabData(); return; }
+
+  if (e.ctrlKey && e.key === 'd') { e.preventDefault(); showScreen('screen-devmode'); startDevCountdown(); return; }
+  if (e.ctrlKey && e.key === 'u') { e.preventDefault(); showToast('USB boot requires developer mode.'); return; }
+  if (e.ctrlKey && e.key === 'l') { e.preventDefault(); showToast('Legacy BIOS boot requires developer mode.'); return; }
+  if (e.ctrlKey && e.key === 'r') { e.preventDefault(); showToast('Restarting...'); setTimeout(() => location.reload(), 1200); return; }
+
+  if (e.key === 'Escape') {
+    document.getElementById('tab-data-overlay').classList.remove('show');
+    if (active !== 'screen-main') { clearInterval(devTimer); showScreen('screen-main'); }
+    return;
+  }
+  if (e.key === ' ' && active === 'screen-devmode') { e.preventDefault(); cancelDevMode(); return; }
+  if (e.key === 'Enter' && active === 'screen-devmode') { e.preventDefault(); confirmDevMode(); return; }
+});
+document.addEventListener('keyup', e => {
+  held.delete(e.key);
+  document.getElementById('hk1').classList.toggle('on', held.has('1'));
+  document.getElementById('hk4').classList.toggle('on', held.has('4'));
+  document.getElementById('hkeq').classList.toggle('on', held.has('='));
+  if (!held.has('1') && !held.has('4') && !held.has('=')) document.getElementById('hold-indicator').classList.remove('show');
+});
+
+// simulate USB insert after 3s for demo
+// auto-advance from main → insert
+document.getElementById('screen-main').querySelector('.screen-body').innerHTML += `
+  <div style="margin-top:32px;display:flex;gap:12px;">
+    <button class="rec-btn rec-btn-primary" onclick="showScreen('screen-insert')" style="font-size:13px;padding:8px 20px">Insert USB (simulate)</button>
+    <button class="rec-btn rec-btn-secondary" onclick="showScreen('screen-devmode');startDevCountdown()" style="font-size:13px;padding:8px 20px">Enable developer mode</button>
+    <button class="rec-btn rec-btn-secondary" onclick="window.location.href='bootloader.html'" style="font-size:13px;padding:8px 20px">Go to bootloader</button>
+  </div>`;
+</script>
+</body>
+</html>
